@@ -26,3 +26,7 @@ conf.yaml
 # coverage report
 coverage.xml
 coverage/
+
+# logs & tmp
+logs/
+tmp/

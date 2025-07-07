@@ -41,6 +41,7 @@ class TokenManager:
             self.config_path = Path(config_path)
         self.config = self._load_config()
         self.token_management = self.config.get("TOKEN_MANAGEMENT", {})
+        self._token_counters = {}  # Cache for token counters to reduce creation overhead
         
         if not self.token_management.get("enabled", False):
             logger.info("Token management is disabled in configuration")
@@ -185,8 +186,11 @@ class TokenManager:
             from .token_counter import TokenCounterFactory
             
             def professional_token_counter(messages):
-                """Professional token counter using TokenCounterFactory."""
-                counter = TokenCounterFactory.create_counter(model_name)
+                """Professional token counter using TokenCounterFactory with caching."""
+                # Use cached counter if available
+                if model_name not in self._token_counters:
+                    self._token_counters[model_name] = TokenCounterFactory.create_counter(model_name)
+                counter = self._token_counters[model_name]
                 
                 # Convert BaseMessage objects to dict format for counting
                 message_dicts = []
@@ -216,30 +220,54 @@ class TokenManager:
             trim_params["token_counter"] = professional_token_counter
             trimmed_messages = trim_messages(**trim_params)
             
-            # Calculate token statistics for logging
-            original_tokens = professional_token_counter(messages)
-            trimmed_tokens = professional_token_counter(trimmed_messages)
-            reduction_pct = ((original_tokens - trimmed_tokens) / original_tokens * 100) if original_tokens > 0 else 0
+            # Calculate token statistics for logging with detailed analysis
+            try:
+                original_tokens = professional_token_counter(messages)
+                trimmed_tokens = professional_token_counter(trimmed_messages)
+            except Exception as e:
+                logger.warning(f"Token counting failed for {node_name}: {e}. Using estimated counts.")
+                # Fallback to simple character-based estimation
+                original_tokens = sum(len(str(msg.content)) for msg in messages) // 4
+                trimmed_tokens = sum(len(str(msg.content)) for msg in trimmed_messages) // 4
             
-            if len(trimmed_messages) < len(messages) or original_tokens != trimmed_tokens:
-                logger.info(
-                    f"Token Management [{node_name}]: "
-                    f"Messages: {len(messages)} → {len(trimmed_messages)} | "
-                    f"Tokens: {original_tokens:,} → {trimmed_tokens:,} | "
-                    f"Reduction: {reduction_pct:.1f}% | "
-                    f"Model: {model_name} (limit: {self.get_model_limit(model_name):,})"
+            reduction_pct = ((original_tokens - trimmed_tokens) / original_tokens * 100) if original_tokens > 0 else 0
+            token_difference = original_tokens - trimmed_tokens
+            
+            # Always log token management activity for monitoring
+            status = "TRIMMED" if len(trimmed_messages) < len(messages) else "NO_TRIM"
+            if token_difference < 0:
+                status = "EXPANDED"  # This shouldn't happen normally
+            
+            logger.info(
+                f"Token Management [{node_name}] [{status}]: "
+                f"Messages: {len(messages)} → {len(trimmed_messages)} | "
+                f"Tokens: {original_tokens:,} → {trimmed_tokens:,} | "
+                f"Change: {reduction_pct:+.1f}% | "
+                f"Model: {model_name} (limit: {self.get_model_limit(model_name):,}) | "
+                f"Max allowed: {max_tokens:,}"
+            )
+            
+            # Additional diagnostics for unusual cases
+            if token_difference < 0:
+                # Deep analysis of token expansion
+                expansion_details = self._analyze_token_expansion(
+                    messages, trimmed_messages, node_name, model_name
                 )
                 
-                # Log details if significant reduction
-                if reduction_pct > 50:
-                    logger.info(
-                        f"Significant token reduction for {node_name}: "
-                        f"Saved {original_tokens - trimmed_tokens:,} tokens"
-                    )
-            else:
+                logger.warning(
+                    f"Token EXPANSION detected in {node_name}: "
+                    f"Tokens increased by {abs(token_difference):,}. "
+                    f"Analysis: {expansion_details}"
+                )
+            elif reduction_pct > 50:
+                logger.info(
+                    f"Significant token reduction for {node_name}: "
+                    f"Saved {token_difference:,} tokens ({reduction_pct:.1f}% reduction)"
+                )
+            elif len(trimmed_messages) == len(messages) and original_tokens <= max_tokens:
                 logger.debug(
-                    f"Token Management [{node_name}]: No trimming needed "
-                    f"({original_tokens:,} tokens < {max_tokens:,} limit)"
+                    f"Token Management [{node_name}]: Within limits, no trimming needed "
+                    f"({original_tokens:,} tokens ≤ {max_tokens:,} limit)"
                 )
                 
             return trimmed_messages
@@ -353,6 +381,131 @@ class TokenManager:
         
         return pre_model_hook
     
+    def _analyze_token_expansion(
+        self, 
+        original_messages: List[BaseMessage], 
+        trimmed_messages: List[BaseMessage], 
+        node_name: str, 
+        model_name: str
+    ) -> str:
+        """
+        Analyze the cause of token expansion in detail.
+        
+        Args:
+            original_messages: Original message list
+            trimmed_messages: Trimmed message list
+            node_name: Name of the workflow node
+            model_name: Name of the model
+            
+        Returns:
+            Detailed analysis string
+        """
+        analysis_parts = []
+        
+        try:
+            # 1. Message count analysis
+            orig_count = len(original_messages)
+            trim_count = len(trimmed_messages)
+            analysis_parts.append(f"msg_count:{orig_count}→{trim_count}")
+            
+            # 2. Content length analysis
+            orig_total_chars = sum(len(str(msg.content)) for msg in original_messages)
+            trim_total_chars = sum(len(str(msg.content)) for msg in trimmed_messages)
+            char_diff = trim_total_chars - orig_total_chars
+            analysis_parts.append(f"chars:{orig_total_chars}→{trim_total_chars}({char_diff:+d})")
+            
+            # 3. Message type distribution
+            orig_types = {}
+            trim_types = {}
+            
+            for msg in original_messages:
+                msg_type = msg.__class__.__name__
+                orig_types[msg_type] = orig_types.get(msg_type, 0) + 1
+                
+            for msg in trimmed_messages:
+                msg_type = msg.__class__.__name__
+                trim_types[msg_type] = trim_types.get(msg_type, 0) + 1
+            
+            if orig_types != trim_types:
+                analysis_parts.append(f"types_changed:{orig_types}→{trim_types}")
+            
+            # 4. Check for metadata differences
+            orig_metadata = self._extract_message_metadata(original_messages)
+            trim_metadata = self._extract_message_metadata(trimmed_messages)
+            
+            if orig_metadata != trim_metadata:
+                analysis_parts.append(f"metadata_diff:true")
+            
+            # 5. Content sample comparison (first and last messages)
+            if original_messages and trimmed_messages:
+                orig_first = str(original_messages[0].content)[:100]
+                trim_first = str(trimmed_messages[0].content)[:100]
+                
+                if orig_first != trim_first:
+                    analysis_parts.append(f"first_msg_changed:true")
+                
+                if len(original_messages) > 1 and len(trimmed_messages) > 1:
+                    orig_last = str(original_messages[-1].content)[:100]
+                    trim_last = str(trimmed_messages[-1].content)[:100]
+                    
+                    if orig_last != trim_last:
+                        analysis_parts.append(f"last_msg_changed:true")
+            
+            # 6. Check for specific patterns that might cause expansion
+            expansion_patterns = self._detect_expansion_patterns(original_messages, trimmed_messages)
+            if expansion_patterns:
+                analysis_parts.extend(expansion_patterns)
+                
+        except Exception as e:
+            analysis_parts.append(f"analysis_error:{str(e)}")
+        
+        return " | ".join(analysis_parts)
+    
+    def _extract_message_metadata(self, messages: List[BaseMessage]) -> dict:
+        """Extract metadata from messages for comparison."""
+        metadata = {
+            'has_additional_kwargs': any(hasattr(msg, 'additional_kwargs') and msg.additional_kwargs for msg in messages),
+            'has_response_metadata': any(hasattr(msg, 'response_metadata') and msg.response_metadata for msg in messages),
+            'has_name': any(hasattr(msg, 'name') and msg.name for msg in messages),
+            'has_tool_calls': any(hasattr(msg, 'tool_calls') and getattr(msg, 'tool_calls', None) for msg in messages),
+        }
+        return metadata
+    
+    def _detect_expansion_patterns(self, original: List[BaseMessage], trimmed: List[BaseMessage]) -> List[str]:
+        """Detect specific patterns that might cause token expansion."""
+        patterns = []
+        
+        try:
+            # Pattern 1: Observation data processing
+            for msg in trimmed:
+                content = str(msg.content)
+                if 'observation' in content.lower() or 'finding' in content.lower():
+                    patterns.append("contains_observations")
+                    break
+            
+            # Pattern 2: JSON or structured data
+            for msg in trimmed:
+                content = str(msg.content)
+                if content.strip().startswith('{') or '<finding>' in content:
+                    patterns.append("structured_data_added")
+                    break
+            
+            # Pattern 3: Message role conversion artifacts
+            if any('role' in str(msg.content) for msg in trimmed):
+                patterns.append("role_conversion_artifacts")
+            
+            # Pattern 4: Formatting additions
+            orig_has_markdown = any('##' in str(msg.content) or '**' in str(msg.content) for msg in original)
+            trim_has_markdown = any('##' in str(msg.content) or '**' in str(msg.content) for msg in trimmed)
+            
+            if not orig_has_markdown and trim_has_markdown:
+                patterns.append("markdown_formatting_added")
+            
+        except Exception as e:
+            patterns.append(f"pattern_detection_error:{str(e)}")
+        
+        return patterns
+
     def log_token_usage(self, node_name: str, original_count: int, trimmed_count: int):
         """
         Log token usage statistics.

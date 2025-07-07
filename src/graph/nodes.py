@@ -174,9 +174,7 @@ def planner_node(
             # Handle SystemMessage and other message types
             messages.append({"role": "system", "content": msg.content})
     
-    # Log token management
-    if len(trimmed_messages) < len(base_messages):
-        token_manager.log_token_usage("planner", len(base_messages), len(trimmed_messages))
+    # Token management logging is handled automatically in trim_messages_for_node
 
     if configurable.enable_deep_thinking:
         llm = get_llm_by_type("reasoning")
@@ -487,6 +485,32 @@ async def _execute_agent_step(
         )
         recursion_limit = default_recursion_limit
 
+    # Apply token management for researcher agent
+    if agent_name == "researcher":
+        from src.utils.token_manager import TokenManager
+        from src.config import load_yaml_config
+        from langchain_core.messages import BaseMessage
+        
+        token_manager = TokenManager()
+        config_data = load_yaml_config(token_manager.config_path)
+        current_model = config_data.get("BASIC_MODEL", {}).get("model", "deepseek-chat")
+        
+        # Convert messages to BaseMessage format if needed
+        messages = agent_input.get("messages", [])
+        if messages and not isinstance(messages[0], BaseMessage):
+            # Messages are already BaseMessage objects, no conversion needed
+            pass
+        
+        # Trim messages for researcher node
+        trimmed_messages = token_manager.trim_messages_for_node(
+            messages, current_model, "researcher"
+        )
+        
+        # Update agent input with trimmed messages
+        agent_input["messages"] = trimmed_messages
+        
+        logger.info(f"Token management applied for {agent_name}: {len(messages)} → {len(trimmed_messages)} messages")
+    
     logger.info(f"Agent input: {agent_input}")
     result = await agent.ainvoke(
         input=agent_input, config={"recursion_limit": recursion_limit}
