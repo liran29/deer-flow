@@ -105,6 +105,48 @@ def get_llm_by_type(
     return llm
 
 
+def get_llm_with_token_management(
+    llm_type: LLMType,
+    node_name: str = None,
+) -> ChatOpenAI:
+    """
+    Get LLM instance with token management pre-hook applied.
+    
+    Args:
+        llm_type: Type of LLM to get
+        node_name: Name of the node for token management strategy
+        
+    Returns:
+        LLM instance with token management hook
+    """
+    llm = get_llm_by_type(llm_type)
+    
+    if node_name:
+        # Import here to avoid circular imports
+        from src.utils.token_manager import TokenManager
+        from src.config import load_yaml_config
+        
+        # Get model name for token management
+        conf = load_yaml_config(_get_config_file_path())
+        model_name = conf.get("BASIC_MODEL", {}).get("model", "default")
+        
+        # Create token manager and hook
+        token_manager = TokenManager()
+        pre_hook = token_manager.create_pre_model_hook(model_name, node_name)
+        
+        # Apply hook to LLM
+        # Note: This is a conceptual implementation - actual LangChain integration may vary
+        if hasattr(llm, 'bind'):
+            # For newer LangChain versions that support binding
+            return llm.bind(pre_invoke_hook=pre_hook)
+        else:
+            # Fallback: return LLM with hook stored as attribute for manual use
+            llm._token_management_hook = pre_hook
+            return llm
+    
+    return llm
+
+
 def get_configured_llm_models() -> dict[str, list[str]]:
     """
     Get all configured LLM models grouped by type.

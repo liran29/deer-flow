@@ -27,6 +27,7 @@ from src.llms.llm import get_llm_by_type
 from src.prompts.planner_model import Plan
 from src.prompts.template import apply_prompt_template
 from src.utils.json_utils import repair_json_output
+from src.utils.token_manager import TokenManager
 
 from .types import State
 from ..config import SELECTED_SEARCH_ENGINE, SearchEngine
@@ -50,6 +51,10 @@ def background_investigation_node(state: State, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     query = state.get("research_topic")
     background_investigation_results = None
+    
+    # Initialize token manager for result trimming
+    token_manager = TokenManager()
+    
     if SELECTED_SEARCH_ENGINE == SearchEngine.TAVILY.value:
         searched_content = LoggedTavilySearch(
             max_results=configurable.max_search_results
@@ -58,10 +63,30 @@ def background_investigation_node(state: State, config: RunnableConfig):
             background_investigation_results = [
                 f"## {elem['title']}\n\n{elem['content']}" for elem in searched_content
             ]
-            return {
-                "background_investigation_results": "\n\n".join(
-                    background_investigation_results
+            
+            # Apply length management to background investigation results
+            combined_results = "\n\n".join(background_investigation_results)
+            
+            # Trim if too long based on background_investigation strategy
+            strategy = token_manager.get_trimming_strategy("background_investigation")
+            max_length = strategy.get("max_tokens", 2000) * 4  # Rough token-to-char conversion
+            
+            if len(combined_results) > max_length:
+                # Keep the most recent results
+                trimmed_results = combined_results[:max_length] + "\n\n[... results truncated for token management ...]"
+                from src.utils.token_counter import count_tokens
+                original_tokens = count_tokens(combined_results, "deepseek-chat")
+                trimmed_tokens = count_tokens(trimmed_results, "deepseek-chat")
+                logger.info(
+                    f"Background Investigation Trimming: "
+                    f"Characters: {len(combined_results):,} → {len(trimmed_results):,} | "
+                    f"Tokens (approx): {original_tokens:,} → {trimmed_tokens:,} | "
+                    f"Reduction: {((len(combined_results) - len(trimmed_results)) / len(combined_results) * 100):.1f}%"
                 )
+                combined_results = trimmed_results
+            
+            return {
+                "background_investigation_results": combined_results
             }
         else:
             logger.error(
@@ -71,8 +96,18 @@ def background_investigation_node(state: State, config: RunnableConfig):
         background_investigation_results = get_web_search_tool(
             configurable.max_search_results
         ).invoke(query)
+        
+        # Apply length management for non-Tavily results
+        results_str = json.dumps(background_investigation_results, ensure_ascii=False)
+        strategy = token_manager.get_trimming_strategy("background_investigation")
+        max_length = strategy.get("max_tokens", 2000) * 4  # Rough token-to-char conversion
+        
+        if len(results_str) > max_length:
+            results_str = results_str[:max_length] + "\n... [results truncated for token management]"
+            logger.info(f"Background investigation JSON results trimmed to {len(results_str)} characters")
+    
     return {
-        "background_investigation_results": json.dumps(
+        "background_investigation_results": results_str if 'results_str' in locals() else json.dumps(
             background_investigation_results, ensure_ascii=False
         )
     }
@@ -100,6 +135,48 @@ def planner_node(
                 ),
             }
         ]
+
+    # Initialize token manager and get model name for trimming
+    token_manager = TokenManager()
+    from src.config import load_yaml_config
+    config_data = load_yaml_config(token_manager.config_path)
+    current_model = config_data.get("BASIC_MODEL", {}).get("model", "default")
+    
+    # Convert messages to BaseMessage objects for trimming
+    base_messages = []
+    for msg in messages:
+        if isinstance(msg, dict):
+            # Handle dictionary format
+            if msg["role"] == "system":
+                from langchain_core.messages import SystemMessage
+                base_messages.append(SystemMessage(content=msg["content"]))
+            elif msg["role"] == "user":
+                base_messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                base_messages.append(AIMessage(content=msg["content"]))
+        else:
+            # Handle BaseMessage objects directly
+            base_messages.append(msg)
+    
+    # Trim messages for planner node
+    trimmed_messages = token_manager.trim_messages_for_node(
+        base_messages, current_model, "planner"
+    )
+    
+    # Convert back to dict format for LLM
+    messages = []
+    for msg in trimmed_messages:
+        if isinstance(msg, HumanMessage):
+            messages.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage):
+            messages.append({"role": "assistant", "content": msg.content})
+        elif hasattr(msg, 'content'):
+            # Handle SystemMessage and other message types
+            messages.append({"role": "system", "content": msg.content})
+    
+    # Log token management
+    if len(trimmed_messages) < len(base_messages):
+        token_manager.log_token_usage("planner", len(base_messages), len(trimmed_messages))
 
     if configurable.enable_deep_thinking:
         llm = get_llm_by_type("reasoning")
@@ -272,6 +349,19 @@ def reporter_node(state: State, config: RunnableConfig):
     invoke_messages = apply_prompt_template("reporter", input_, configurable)
     observations = state.get("observations", [])
 
+    # Initialize token manager for observation management
+    token_manager = TokenManager()
+    from src.config import load_yaml_config
+    config_data = load_yaml_config(token_manager.config_path)
+    current_model = config_data.get("BASIC_MODEL", {}).get("model", "default")
+    
+    # Manage observations to prevent token overflow
+    managed_observations = token_manager.manage_observations(observations)
+    
+    # Log observation management if any changes were made
+    if len(managed_observations) != len(observations):
+        logger.info(f"Managed observations: {len(observations)} -> {len(managed_observations)}")
+
     # Add a reminder about the new report format, citation style, and table usage
     invoke_messages.append(
         HumanMessage(
@@ -280,15 +370,26 @@ def reporter_node(state: State, config: RunnableConfig):
         )
     )
 
-    for observation in observations:
+    # Add managed observations instead of all observations
+    for observation in managed_observations:
         invoke_messages.append(
             HumanMessage(
                 content=f"Below are some observations for the research task:\n\n{observation}",
                 name="observation",
             )
         )
-    logger.debug(f"Current invoke messages: {invoke_messages}")
-    response = get_llm_by_type(AGENT_LLM_MAP["reporter"]).invoke(invoke_messages)
+    
+    # Apply token management to final invoke_messages
+    trimmed_messages = token_manager.trim_messages_for_node(
+        invoke_messages, current_model, "reporter"
+    )
+    
+    # Log token management
+    if len(trimmed_messages) < len(invoke_messages):
+        token_manager.log_token_usage("reporter", len(invoke_messages), len(trimmed_messages))
+    
+    logger.debug(f"Current invoke messages: {trimmed_messages}")
+    response = get_llm_by_type(AGENT_LLM_MAP["reporter"]).invoke(trimmed_messages)
     response_content = response.content
     logger.info(f"reporter response: {response_content}")
 
