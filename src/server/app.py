@@ -52,6 +52,56 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# 🔧 DEBUG: 监控 LangGraph 回调错误
+import asyncio
+
+def debug_async_exceptions(loop, context):
+    """调试异步异常，特别是 LangGraph 相关的"""
+    exception = context.get('exception')
+    if exception:
+        logger.error(f"🚨 Async exception: {type(exception).__name__}: {exception}")
+        
+        # 记录完整的上下文信息
+        for key, value in context.items():
+            if key != 'exception':
+                logger.error(f"  Context[{key}]: {repr(value)}")
+        
+        # 检查是否是 LangGraph 回调相关
+        if isinstance(exception, TypeError) and "'NoneType' object is not callable" in str(exception):
+            logger.error("🔍 LangGraph callback error detected!")
+            
+            # 尝试获取更多堆栈信息
+            import traceback
+            if hasattr(exception, '__traceback__'):
+                logger.error("Stack trace:")
+                logger.error(''.join(traceback.format_tb(exception.__traceback__)))
+            
+            # 检查是否有 future 或 task 相关信息
+            future = context.get('future')
+            task = context.get('task')
+            if future:
+                logger.error(f"  Future: {repr(future)}")
+                logger.error(f"  Future done: {future.done()}")
+                logger.error(f"  Future cancelled: {future.cancelled()}")
+            if task:
+                logger.error(f"  Task: {repr(task)}")
+                logger.error(f"  Task done: {task.done()}")
+                logger.error(f"  Task cancelled: {task.cancelled()}")
+            
+            # 暂时不抛出，但记录详细信息
+            return
+    
+    # 对于其他错误，使用默认处理
+    loop.default_exception_handler(context)
+
+# 设置异步异常监控
+try:
+    loop = asyncio.get_event_loop()
+    loop.set_exception_handler(debug_async_exceptions)
+except RuntimeError:
+    # 如果没有运行中的循环，稍后设置
+    pass
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -60,6 +110,26 @@ app.add_middleware(
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
 )
+
+# Configure file logging on startup if environment variable is set
+@app.on_event("startup")
+async def configure_file_logging():
+    """Configure file logging if enabled via environment variables."""
+    import os
+    
+    # Check if file logging was requested via environment
+    log_to_file = os.getenv("DEER_FLOW_LOG_TO_FILE", "").lower() in ("true", "1", "yes")
+    debug_log_to_file = os.getenv("DEER_FLOW_DEBUG_LOG_TO_FILE", "").lower() in ("true", "1", "yes")
+    
+    if log_to_file or debug_log_to_file:
+        from src.utils.logger_config import enable_debug_file_logging, enable_file_logging
+        
+        if debug_log_to_file:
+            log_path = enable_debug_file_logging()
+            logger.info(f"✅ File logging re-enabled on startup: {log_path}")
+        elif log_to_file:
+            log_path = enable_file_logging()
+            logger.info(f"✅ File logging re-enabled on startup: {log_path}")
 
 graph = build_graph_with_memory()
 

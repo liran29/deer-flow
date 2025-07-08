@@ -14,6 +14,8 @@ from pathlib import Path
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.messages.utils import trim_messages
 
+from .token_comparison_logger import TokenComparisonLogger, load_comparison_logger_from_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,6 +44,9 @@ class TokenManager:
         self.config = self._load_config()
         self.token_management = self.config.get("TOKEN_MANAGEMENT", {})
         self._token_counters = {}  # Cache for token counters to reduce creation overhead
+        
+        # Initialize comparison logger
+        self.comparison_logger = load_comparison_logger_from_config(config_path)
         
         if not self.token_management.get("enabled", False):
             logger.info("Token management is disabled in configuration")
@@ -269,6 +274,23 @@ class TokenManager:
                     f"Token Management [{node_name}]: Within limits, no trimming needed "
                     f"({original_tokens:,} tokens ≤ {max_tokens:,} limit)"
                 )
+            
+            # Log comparison if enabled
+            if self.comparison_logger.enabled:
+                comparison_path = self.comparison_logger.log_comparison(
+                    original_messages=messages,
+                    trimmed_messages=trimmed_messages,
+                    node_name=node_name,
+                    model_name=model_name,
+                    max_tokens=max_tokens,
+                    strategy=strategy,
+                    token_counts={
+                        'original': original_tokens,
+                        'trimmed': trimmed_tokens
+                    }
+                )
+                if comparison_path:
+                    logger.debug(f"Token comparison saved to: {comparison_path}")
                 
             return trimmed_messages
             

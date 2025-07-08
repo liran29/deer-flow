@@ -18,10 +18,16 @@ The deer-flow token management system is designed to handle Large Language Model
    - Supports multiple models and counting strategies
    - Provides accurate token estimation
 
-3. **Configuration** (`conf.yaml`)
+3. **TokenComparisonLogger** (`src/utils/token_comparison_logger.py`)
+   - Debug tool for visualizing trimming effects
+   - Saves before/after comparisons
+   - Generates detailed analysis reports
+
+4. **Configuration** (`conf.yaml`)
    - Token management settings
    - Model-specific limits
    - Node-specific trimming strategies
+   - Debug mode configuration
 
 ## How Token Management Works
 
@@ -315,6 +321,126 @@ for msg in trimmed_messages:
 # Special handling for large observation lists
 managed_observations = token_manager.manage_observations(observations)
 # Automatically trims observation list to prevent token overflow
+```
+
+## Debug Mode: Token Comparison Logging
+
+### Overview
+
+The token management system includes a powerful debug feature that saves before/after comparisons of trimmed messages, helping developers understand exactly what `trim_messages` does to their data.
+
+### Enabling Debug Mode
+
+1. **Via Configuration (conf.yaml)**:
+```yaml
+TOKEN_MANAGEMENT:
+  debug:
+    enabled: true  # Enable debug mode
+    output_dir: "logs/token_comparisons"
+    max_content_preview: 500
+    save_full_content: true
+```
+
+2. **Via Command Line**:
+```bash
+# Enable debug mode
+python scripts/analyze_token_trimming.py --enable
+
+# Disable when done
+python scripts/analyze_token_trimming.py --disable
+```
+
+### What Gets Saved
+
+When debug mode is enabled, every token trimming operation saves:
+
+1. **JSON Data** (`logs/token_comparisons/json/`):
+   - Complete message details
+   - Token counts and statistics
+   - Trimming analysis
+
+2. **Markdown Reports** (`logs/token_comparisons/markdown/`):
+   - Human-readable comparison reports
+   - Visual markers for removed messages
+   - Statistical summaries
+
+3. **Summary Statistics** (`logs/token_comparisons/summary/`):
+   - Aggregate data across all comparisons
+   - Per-node and per-model statistics
+
+### Using the Analysis Tool
+
+```bash
+# List all saved comparisons
+python scripts/analyze_token_trimming.py --list
+
+# View a specific comparison
+python scripts/analyze_token_trimming.py --view planner_deepseek-chat_20240115_143022.md
+
+# Generate summary report
+python scripts/analyze_token_trimming.py --summary
+
+# Convert to interactive HTML
+python scripts/analyze_token_trimming.py --html planner_deepseek-chat_20240115_143022.json
+
+# Clean old files (older than 7 days)
+python scripts/analyze_token_trimming.py --clean 7
+```
+
+### Example Output
+
+**Markdown Report Example**:
+```markdown
+# Token Trimming Comparison Report
+
+## Statistics
+- Messages: 87 → 23 (64 removed)
+- Tokens: 137,449 → 24,024 (113,425 saved, 82.5% reduction)
+
+## Message Comparison
+
+### Original Messages
+[0] SystemMessage (127 chars)
+[1] HumanMessage (45,231 chars) ❌
+[2] AIMessage (12,456 chars) ❌
+...
+
+### Trimmed Messages
+[0] SystemMessage (127 chars)
+[1] HumanMessage (234 chars)
+...
+```
+
+### Performance Considerations
+
+- Debug mode adds overhead to token management operations
+- Only enable during development or troubleshooting
+- Files are saved asynchronously to minimize impact
+- Use the `--clean` option to manage disk space
+
+### Advanced Usage
+
+For custom analysis, you can use the `TokenComparisonLogger` directly:
+
+```python
+from src.utils.token_comparison_logger import TokenComparisonLogger
+
+# Create custom logger
+logger = TokenComparisonLogger(
+    enabled=True,
+    output_dir="my_analysis",
+    max_content_preview=1000
+)
+
+# Log comparison
+logger.log_comparison(
+    original_messages=messages,
+    trimmed_messages=trimmed,
+    node_name="custom_node",
+    model_name="gpt-4",
+    max_tokens=10000,
+    strategy={"strategy": "last"}
+)
 ```
 
 ## Conclusion

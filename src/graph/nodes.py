@@ -75,8 +75,14 @@ def background_investigation_node(state: State, config: RunnableConfig):
                 # Keep the most recent results
                 trimmed_results = combined_results[:max_length] + "\n\n[... results truncated for token management ...]"
                 from src.utils.token_counter import count_tokens
-                original_tokens = count_tokens(combined_results, "deepseek-chat")
-                trimmed_tokens = count_tokens(trimmed_results, "deepseek-chat")
+                from src.config import load_yaml_config
+                
+                # 获取当前使用的模型
+                config_data = load_yaml_config("conf.yaml")
+                current_model = config_data.get("BASIC_MODEL", {}).get("model", "deepseek-chat")
+                
+                original_tokens = count_tokens(combined_results, current_model)
+                trimmed_tokens = count_tokens(trimmed_results, current_model)
                 logger.info(
                     f"Background Investigation Trimming: "
                     f"Characters: {len(combined_results):,} → {len(trimmed_results):,} | "
@@ -489,7 +495,8 @@ async def _execute_agent_step(
     if agent_name == "researcher":
         from src.utils.token_manager import TokenManager
         from src.config import load_yaml_config
-        from langchain_core.messages import BaseMessage
+        from langchain_core.messages import BaseMessage, SystemMessage
+        from src.utils.token_counter import TokenCounterFactory
         
         token_manager = TokenManager()
         config_data = load_yaml_config(token_manager.config_path)
@@ -501,10 +508,68 @@ async def _execute_agent_step(
             # Messages are already BaseMessage objects, no conversion needed
             pass
         
+        # 🔍 DEBUG: 详细记录 token 管理前的状态
+        try:
+            counter = TokenCounterFactory.create_counter(current_model)
+            # 转换为字典格式进行计数
+            message_dicts = []
+            for msg in messages:
+                if hasattr(msg, 'content'):
+                    if isinstance(msg, SystemMessage):
+                        message_dicts.append({"role": "system", "content": msg.content})
+                    elif isinstance(msg, HumanMessage):
+                        message_dicts.append({"role": "user", "content": msg.content})
+                    elif isinstance(msg, AIMessage):
+                        message_dicts.append({"role": "assistant", "content": msg.content})
+                    elif hasattr(msg, 'role'):
+                        message_dicts.append({"role": msg.role, "content": msg.content})
+            
+            pre_trim_tokens = counter.count_messages_tokens(message_dicts)
+            logger.info(f"🔍 PRE-TRIM DEBUG [{agent_name}]: {len(messages)} messages, {pre_trim_tokens:,} tokens")
+            
+            # 记录最大的几条消息
+            if len(messages) > 5:
+                for i, msg in enumerate(messages[-5:], len(messages)-5):
+                    content_preview = str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
+                    logger.info(f"  Message {i}: {type(msg).__name__} - {len(str(msg.content))} chars: {content_preview}")
+        except Exception as e:
+            logger.warning(f"🔍 PRE-TRIM DEBUG failed: {e}")
+        
         # Trim messages for researcher node
         trimmed_messages = token_manager.trim_messages_for_node(
             messages, current_model, "researcher"
         )
+        
+        # 🔍 DEBUG: 详细记录 token 管理后的状态
+        try:
+            trimmed_dicts = []
+            for msg in trimmed_messages:
+                if hasattr(msg, 'content'):
+                    if isinstance(msg, SystemMessage):
+                        trimmed_dicts.append({"role": "system", "content": msg.content})
+                    elif isinstance(msg, HumanMessage):
+                        trimmed_dicts.append({"role": "user", "content": msg.content})
+                    elif isinstance(msg, AIMessage):
+                        trimmed_dicts.append({"role": "assistant", "content": msg.content})
+                    elif hasattr(msg, 'role'):
+                        trimmed_dicts.append({"role": msg.role, "content": msg.content})
+            
+            post_trim_tokens = counter.count_messages_tokens(trimmed_dicts)
+            logger.info(f"🔍 POST-TRIM DEBUG [{agent_name}]: {len(trimmed_messages)} messages, {post_trim_tokens:,} tokens")
+            
+            # 检查是否超过模型限制
+            model_limit = token_manager.get_model_limit(current_model)
+            if post_trim_tokens > model_limit:
+                logger.error(f"🚨 STILL OVER LIMIT [{agent_name}]: {post_trim_tokens:,} > {model_limit:,} tokens!")
+                # 记录前几条和后几条消息
+                for i, msg in enumerate(trimmed_messages[:3]):
+                    content_preview = str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
+                    logger.error(f"  First {i}: {type(msg).__name__} - {len(str(msg.content))} chars: {content_preview}")
+                for i, msg in enumerate(trimmed_messages[-3:], len(trimmed_messages)-3):
+                    content_preview = str(msg.content)[:100] + "..." if len(str(msg.content)) > 100 else str(msg.content)
+                    logger.error(f"  Last {i}: {type(msg).__name__} - {len(str(msg.content))} chars: {content_preview}")
+        except Exception as e:
+            logger.warning(f"🔍 POST-TRIM DEBUG failed: {e}")
         
         # Update agent input with trimmed messages
         agent_input["messages"] = trimmed_messages
@@ -512,9 +577,93 @@ async def _execute_agent_step(
         logger.info(f"Token management applied for {agent_name}: {len(messages)} → {len(trimmed_messages)} messages")
     
     logger.info(f"Agent input: {agent_input}")
+    
+    # 🔍 FINAL DEBUG & FIX: 在实际调用 LLM 前的最后检查和修复
+    logger.error(f"🔍 ENTERING FINAL CHECK for agent: {agent_name}")
+    
+    if agent_name == "researcher":
+        logger.error(f"🔍 INSIDE researcher condition")
+        try:
+            final_messages = agent_input.get("messages", [])
+            from src.utils.token_counter import TokenCounterFactory
+            from src.config import load_yaml_config
+            
+            # 获取当前使用的模型
+            config_data = load_yaml_config("conf.yaml")
+            current_model = config_data.get("BASIC_MODEL", {}).get("model", "deepseek-chat")
+            
+            counter = TokenCounterFactory.create_counter(current_model)
+            
+            final_dicts = []
+            for msg in final_messages:
+                if hasattr(msg, 'content'):
+                    if isinstance(msg, SystemMessage):
+                        final_dicts.append({"role": "system", "content": msg.content})
+                    elif isinstance(msg, HumanMessage):
+                        final_dicts.append({"role": "user", "content": msg.content})
+                    elif isinstance(msg, AIMessage):
+                        final_dicts.append({"role": "assistant", "content": msg.content})
+                    elif hasattr(msg, 'role'):
+                        final_dicts.append({"role": msg.role, "content": msg.content})
+            
+            final_tokens = counter.count_messages_tokens(final_dicts)
+            logger.info(f"🔍 FINAL CHECK [{agent_name}]: {len(final_messages)} messages, {final_tokens:,} tokens")
+            
+            # 记录每条消息的详细信息
+            for i, msg in enumerate(final_messages):
+                content_preview = str(msg.content)[:200] + "..." if len(str(msg.content)) > 200 else str(msg.content)
+                msg_tokens = counter.count_messages_tokens([final_dicts[i]] if i < len(final_dicts) else [])
+                logger.debug(f"  Message[{i}] {type(msg).__name__}: {msg_tokens} tokens - {content_preview}")
+            
+            # 获取模型的实际限制
+            from src.utils.token_manager import TokenManager
+            token_manager = TokenManager()
+            model_limit = token_manager.get_model_limit(current_model)
+            
+            if final_tokens > model_limit:
+                logger.error(f"🚨 CRITICAL: About to send {final_tokens:,} tokens to LLM (limit: {model_limit:,})! Applying emergency token management!")
+                
+                # 应用激进的 Token 管理
+                emergency_trimmed = token_manager.trim_messages_for_node(
+                    final_messages, current_model, "researcher"
+                )
+                
+                # 重新计算
+                emergency_dicts = []
+                for msg in emergency_trimmed:
+                    if hasattr(msg, 'content'):
+                        if isinstance(msg, SystemMessage):
+                            emergency_dicts.append({"role": "system", "content": msg.content})
+                        elif isinstance(msg, HumanMessage):
+                            emergency_dicts.append({"role": "user", "content": msg.content})
+                        elif isinstance(msg, AIMessage):
+                            emergency_dicts.append({"role": "assistant", "content": msg.content})
+                
+                emergency_tokens = counter.count_messages_tokens(emergency_dicts)
+                logger.error(f"🔧 EMERGENCY TRIM: {len(final_messages)} → {len(emergency_trimmed)} messages, {final_tokens:,} → {emergency_tokens:,} tokens (model: {current_model}, limit: {model_limit:,})")
+                
+                # 检查是否仍然超限
+                if emergency_tokens > model_limit:
+                    logger.error(f"⚠️ WARNING: Emergency trim still over limit by {emergency_tokens - model_limit:,} tokens!")
+                else:
+                    logger.info(f"✅ Emergency trim successful: {emergency_tokens:,} <= {model_limit:,} tokens")
+                
+                # 记录修剪后的消息详情
+                for i, msg in enumerate(emergency_trimmed):
+                    content_preview = str(msg.content)[:200] + "..." if len(str(msg.content)) > 200 else str(msg.content)
+                    msg_tokens = counter.count_messages_tokens([emergency_dicts[i]] if i < len(emergency_dicts) else [])
+                    logger.debug(f"  Trimmed[{i}] {type(msg).__name__}: {msg_tokens} tokens - {content_preview}")
+                
+                # 更新 agent_input
+                agent_input["messages"] = emergency_trimmed
+        except Exception as e:
+            logger.warning(f"🔍 FINAL CHECK failed: {e}")
+    
+    logger.error(f"🔍 ABOUT TO CALL agent.ainvoke for {agent_name}")
     result = await agent.ainvoke(
         input=agent_input, config={"recursion_limit": recursion_limit}
     )
+    logger.error(f"🔍 COMPLETED agent.ainvoke for {agent_name}")
 
     # Process the result
     response_content = result["messages"][-1].content
@@ -524,6 +673,49 @@ async def _execute_agent_step(
     current_step.execution_res = response_content
     logger.info(f"Step '{current_step.title}' execution completed by {agent_name}")
 
+    # 🔍 DEBUG: 监控 Command 参数，查找异步回调错误的根因
+    try:
+        logger.debug(f"🔍 Command parameters debug:")
+        logger.debug(f"  agent_name: {repr(agent_name)} (type: {type(agent_name)})")
+        logger.debug(f"  response_content length: {len(str(response_content))} chars")
+        logger.debug(f"  response_content type: {type(response_content)}")
+        logger.debug(f"  response_content preview: {repr(str(response_content)[:200])}")
+        logger.debug(f"  observations count: {len(observations)}")
+        logger.debug(f"  observations types: {[type(obs) for obs in observations]}")
+        
+        # 检查 response_content 的有效性
+        if response_content is None:
+            logger.warning("⚠️ response_content is None!")
+        elif not isinstance(response_content, (str, int, float, bool, list, dict)):
+            logger.warning(f"⚠️ response_content has unusual type: {type(response_content)}")
+        
+        # 检查 observations 的有效性
+        for i, obs in enumerate(observations):
+            if obs is None:
+                logger.warning(f"⚠️ observations[{i}] is None!")
+            elif not isinstance(obs, (str, int, float, bool, list, dict)):
+                logger.warning(f"⚠️ observations[{i}] has unusual type: {type(obs)}")
+        
+        # 创建 HumanMessage，检查是否有问题
+        human_message = HumanMessage(
+            content=response_content,
+            name=agent_name,
+        )
+        logger.debug(f"  HumanMessage created successfully: {type(human_message)}")
+        
+        # 创建 update 字典
+        update_dict = {
+            "messages": [human_message],
+            "observations": observations + [response_content],
+        }
+        logger.debug(f"  update_dict created successfully, keys: {list(update_dict.keys())}")
+        
+    except Exception as debug_e:
+        logger.error(f"🚨 DEBUG failed while preparing Command: {debug_e}")
+        import traceback
+        logger.error(f"Debug traceback: {traceback.format_exc()}")
+
+    # 返回执行结果
     return Command(
         update={
             "messages": [
