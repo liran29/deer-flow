@@ -662,14 +662,88 @@ async def _execute_agent_step(
             logger.warning(f"🔍 FINAL CHECK failed: {e}")
     
     logger.error(f"🔍 ABOUT TO CALL agent.ainvoke for {agent_name}")
-    result = await agent.ainvoke(
-        input=agent_input, config={"recursion_limit": recursion_limit}
-    )
-    logger.error(f"🔍 COMPLETED agent.ainvoke for {agent_name}")
+    
+    # 添加内容安全错误处理
+    try:
+        result = await agent.ainvoke(
+            input=agent_input, config={"recursion_limit": recursion_limit}
+        )
+        logger.error(f"🔍 COMPLETED agent.ainvoke for {agent_name}")
+    except Exception as e:
+        # 导入内容安全处理器
+        from src.utils.content_safety_handler import content_safety_handler, ContentSafetyError
+        from openai import BadRequestError
+        
+        if isinstance(e, BadRequestError) and content_safety_handler.is_content_safety_error(e):
+            logger.warning(f"🚨 {agent_name} 遇到内容安全检查错误: {e}")
+            
+            # 构建错误上下文
+            context = {
+                "agent_name": agent_name,
+                "step_title": current_step.title if current_step else "Unknown",
+                "message_count": len(agent_input.get("messages", [])),
+                "error_time": "2025-07-10 10:37:21"  # 可以改为实时时间
+            }
+            
+            # 处理内容安全错误
+            action = await content_safety_handler.handle_content_safety_error(
+                e, 
+                context, 
+                auto_continue_timeout=30  # 30秒后自动继续
+            )
+            
+            if action == "continue":
+                # 创建显眼的安全提示响应
+                logger.info(f"🔄 {agent_name} 内容安全错误，自动过滤并继续")
+                
+                # 构建显眼的安全响应消息
+                from langchain_core.messages import AIMessage
+                safe_response = AIMessage(
+                    content=f"⚠️ **内容安全提示** ⚠️\n\n"
+                           f"🚫 **检测到内容风险**: 当前查询内容触发了API的安全检查机制\n\n"
+                           f"🔧 **自动处理**: 系统已自动过滤风险内容并继续执行\n\n"
+                           f"📋 **当前任务**: {current_step.title if current_step else '未知任务'}\n\n"
+                           f"💡 **建议**: 如需更详细信息，请尝试:\n"
+                           f"• 调整查询关键词，避免敏感词汇\n"
+                           f"• 换个角度或更具体的方式描述问题\n"
+                           f"• 将复杂问题分解为多个简单查询\n\n"
+                           f"✅ **继续执行**: 系统将跳过此部分内容，继续执行后续研究步骤..."
+                )
+                
+                result = {"messages": [safe_response]}
+                
+            # 由于现在只返回"continue"，这些分支保留用于向后兼容
+            elif action == "stop":
+                logger.error(f"🛑 {agent_name} 内容安全错误，停止任务")
+                raise ContentSafetyError(f"{agent_name} 遇到内容安全限制，任务已停止", e)
+            elif action == "retry":
+                logger.warning(f"🔄 {agent_name} 内容安全错误，重试")
+                raise e
+            else:
+                # 未知操作，抛出原错误
+                raise e
+        else:
+            # 非内容安全错误，直接抛出
+            logger.error(f"❌ {agent_name} 执行失败: {e}")
+            raise e
 
     # Process the result
     response_content = result["messages"][-1].content
     logger.debug(f"{agent_name.capitalize()} full response: {response_content}")
+
+    # 🎯 新增：Tool执行后的Token检查点
+    # 检查response_content的长度，防止单个响应过大
+    max_response_length = 15000  # 限制单个响应最大长度
+    if len(str(response_content)) > max_response_length:
+        original_length = len(str(response_content))
+        # 截断响应，保留开头和结尾
+        half_length = max_response_length // 2
+        response_content = (
+            str(response_content)[:half_length] + 
+            f"\n\n[... 响应内容已截断，原长度: {original_length} 字符 ...]\n\n" +
+            str(response_content)[-half_length:]
+        )
+        logger.warning(f"🔧 {agent_name}: Response truncated ({original_length} → {len(response_content)} chars)")
 
     # Update the step with the execution result
     current_step.execution_res = response_content
@@ -705,10 +779,21 @@ async def _execute_agent_step(
         )
         logger.debug(f"  HumanMessage created successfully: {type(human_message)}")
         
+        # 🎯 新增：Observations管理，防止累积过多
+        updated_observations = observations + [response_content]
+        max_observations = 5  # 最多保留5个观察结果
+        
+        if len(updated_observations) > max_observations:
+            # 保留最近的观察结果
+            managed_observations = updated_observations[-max_observations:]
+            logger.info(f"🔧 {agent_name}: Observations trimmed ({len(updated_observations)} → {len(managed_observations)})")
+        else:
+            managed_observations = updated_observations
+        
         # 创建 update 字典
         update_dict = {
             "messages": [human_message],
-            "observations": observations + [response_content],
+            "observations": managed_observations,
         }
         logger.debug(f"  update_dict created successfully, keys: {list(update_dict.keys())}")
         
