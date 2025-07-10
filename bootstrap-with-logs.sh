@@ -6,6 +6,7 @@
 # Parse options
 DEBUG_LOG=""
 DEV_MODE=""
+TOKEN_MGMT_ACTION=""
 
 for arg in "$@"; do
   case $arg in
@@ -18,11 +19,52 @@ for arg in "$@"; do
     --log|--log-file)
       DEBUG_LOG="--log-to-file"
       ;;
+    --token-mgmt-on|--enable-token-mgmt)
+      TOKEN_MGMT_ACTION="on"
+      ;;
+    --token-mgmt-off|--disable-token-mgmt)
+      TOKEN_MGMT_ACTION="off"
+      ;;
+    --help|-h)
+      echo "DeerFlow Bootstrap Script with Logging and Token Management"
+      echo ""
+      echo "Usage: $0 [OPTIONS]"
+      echo ""
+      echo "Development Options:"
+      echo "  -d, --dev               Start in development mode"
+      echo ""
+      echo "Logging Options:"
+      echo "  --debug-log             Enable debug-level file logging"
+      echo "  --log                   Enable info-level file logging"
+      echo ""
+      echo "Token Management Options:"
+      echo "  --token-mgmt-on         Enable token management before starting"
+      echo "  --token-mgmt-off        Disable token management before starting"
+      echo ""
+      echo "Examples:"
+      echo "  $0 -d                                    # Development mode"
+      echo "  $0 -d --debug-log                       # Development + debug logging"
+      echo "  $0 -d --debug-log --token-mgmt-off      # Development + logging + token mgmt disabled"
+      echo "  $0 --token-mgmt-on                      # Production with token management enabled"
+      echo ""
+      exit 0
+      ;;
     *)
-      # Unknown option
+      # Unknown option - ignore for backwards compatibility
       ;;
   esac
 done
+
+# Handle token management configuration
+if [ -n "$TOKEN_MGMT_ACTION" ]; then
+  echo "🔧 Configuring token management..."
+  python scripts/toggle_token_management.py $TOKEN_MGMT_ACTION
+  if [ $? -ne 0 ]; then
+    echo "❌ Failed to configure token management"
+    exit 1
+  fi
+  echo ""
+fi
 
 if [ "$DEV_MODE" = "true" ]; then
   echo -e "Starting DeerFlow in [DEVELOPMENT] mode..."

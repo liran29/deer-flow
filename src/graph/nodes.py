@@ -492,7 +492,8 @@ async def _execute_agent_step(
         recursion_limit = default_recursion_limit
 
     # Apply token management for researcher agent
-    if agent_name == "researcher":
+    # NOTE: Token management is now handled in agents.py pre_model_hook
+    if False and agent_name == "researcher":
         from src.utils.token_manager import TokenManager
         from src.config import load_yaml_config
         from langchain_core.messages import BaseMessage, SystemMessage
@@ -579,9 +580,10 @@ async def _execute_agent_step(
     logger.info(f"Agent input: {agent_input}")
     
     # 🔍 FINAL DEBUG & FIX: 在实际调用 LLM 前的最后检查和修复
-    logger.error(f"🔍 ENTERING FINAL CHECK for agent: {agent_name}")
+    # NOTE: Final check disabled - token management now in agents.py pre_model_hook
+    logger.debug(f"🔍 FINAL CHECK disabled for agent: {agent_name}")
     
-    if agent_name == "researcher":
+    if False and agent_name == "researcher":
         logger.error(f"🔍 INSIDE researcher condition")
         try:
             final_messages = agent_input.get("messages", [])
