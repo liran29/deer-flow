@@ -155,7 +155,7 @@ async def _astream_workflow_generator(
         )
         event_stream_message: dict[str, any] = {
             "thread_id": thread_id,
-            "agent": agent[0].split(":")[0],
+            "agent": agent[0].split(":")[0] if agent and len(agent) > 0 and agent[0] and ":" in agent[0] else "unknown",
             "id": message_chunk.id,
             "role": "assistant",
             "content": message_chunk.content,

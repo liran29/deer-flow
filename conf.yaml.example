@@ -65,3 +65,8 @@ BASIC_MODEL:
 #   # Exclude results from these domains
 #   exclude_domains:
 #     - example.com
+
+# Enhanced Features Configuration
+# 启用增强版背景调查（使用LLM摘要压缩搜索结果）
+# ENHANCED_FEATURES:
+#   enhanced_background_investigation: true
