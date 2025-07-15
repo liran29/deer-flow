@@ -15,7 +15,7 @@ In DeerFlow, currently we only support non-reasoning models, which means models 
 
 ### Supported Models
 
-`doubao-1.5-pro-32k-250115`, `gpt-4o`, `qwen-max-latest`, `gemini-2.0-flash`, `deepseek-v3`, and theoretically any other non-reasoning chat models that implement the OpenAI API specification.
+`doubao-1.5-pro-32k-250115`, `gpt-4o`, `qwen-max-latest`, `gemini-2.0-flash`, `deepseek-v3`, `grok-2-latest`, and theoretically any other non-reasoning chat models that implement the OpenAI API specification.
 
 > [!NOTE]
 > The Deep Research process requires the model to have a **longer context window**, which is not supported by all models.
@@ -55,6 +55,12 @@ BASIC_MODEL:
 BASIC_MODEL:
   base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
   model: "gemini-2.0-flash"
+  api_key: YOUR_API_KEY
+
+# An example of Grok models by xAI
+BASIC_MODEL:
+  base_url: "https://api.x.ai/v1"
+  model: "grok-2-latest"
   api_key: YOUR_API_KEY
 ```
 

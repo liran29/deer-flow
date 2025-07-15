@@ -6,11 +6,38 @@
 # - Set `verify_ssl` to `false` if your LLM server uses self-signed certificates
 # - A restart is required every time you change the `config.yaml` file.
 
+# Example configurations for different LLM providers:
+
+# Doubao (ByteDance)
 BASIC_MODEL:
   base_url: https://ark.cn-beijing.volces.com/api/v3
   model: "doubao-1-5-pro-32k-250115"
   api_key: xxxx
   # verify_ssl: false  # Uncomment this line to disable SSL certificate verification for self-signed certificates
+
+# Grok (xAI) - OpenAI compatible
+# BASIC_MODEL:
+#   base_url: https://api.x.ai/v1
+#   model: "grok-2-latest"
+#   api_key: xxxx
+
+# DeepSeek
+# BASIC_MODEL:
+#   base_url: https://api.deepseek.com
+#   model: "deepseek-chat"
+#   api_key: xxxx
+
+# OpenAI
+# BASIC_MODEL:
+#   base_url: https://api.openai.com/v1
+#   model: "gpt-4"
+#   api_key: xxxx
+
+# Google Gemini
+# BASIC_MODEL:
+#   api_key: xxxx
+#   base_url: https://generativelanguage.googleapis.com/v1beta
+#   model: "gemini-2.5-pro"
  
 # Reasoning model is optional.
 # Uncomment the following settings if you want to use reasoning model
