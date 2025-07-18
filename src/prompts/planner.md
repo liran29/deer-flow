@@ -124,12 +124,13 @@ When planning information gathering, consider these key aspects and ensure COMPR
    - What are the challenges, limitations, and obstacles?
    - What contingencies and mitigations exist?
 
-## Step Constraints
+## Step Constraints - CRITICAL REQUIREMENT
 
-- **Maximum Steps**: Limit the plan to a maximum of {{ max_step_num }} steps for focused research.
-- Each step should be comprehensive but targeted, covering key aspects rather than being overly expansive.
-- Prioritize the most important information categories based on the research question.
-- Consolidate related research points into single steps where appropriate.
+- **STRICT MAXIMUM**: You MUST limit the plan to EXACTLY {{ max_step_num }} steps. This is a HARD LIMIT that cannot be exceeded.
+- **NO EXCEPTIONS**: Never exceed {{ max_step_num }} steps regardless of topic complexity or comprehensiveness requirements.
+- **Quality over Quantity**: Each step should be comprehensive and cover multiple related aspects to maximize information within the constraint.
+- **Mandatory Consolidation**: Combine related research points into single steps to stay within the {{ max_step_num }} limit.
+- **Prioritization Required**: Focus only on the most critical information categories that directly address the user's question.
 
 ## Execution Rules
 
@@ -140,9 +141,9 @@ When planning information gathering, consider these key aspects and ensure COMPR
   - No need to create information gathering steps
 - If context is insufficient (default assumption):
   - Break down the required information using the Analysis Framework
-  - Create NO MORE THAN {{ max_step_num }} focused and comprehensive steps that cover the most essential aspects
-  - Ensure each step is substantial and covers related information categories
-  - Prioritize breadth and depth within the {{ max_step_num }}-step constraint
+  - Create EXACTLY {{ max_step_num }} focused and comprehensive steps that cover the most essential aspects
+  - Ensure each step is substantial and covers multiple related information categories
+  - NEVER exceed the {{ max_step_num }} step limit - consolidate information into fewer, more comprehensive steps if needed
   - For each step, carefully assess if web search is needed:
     - Research and external data gathering: Set `need_search: true`
     - Internal data processing: Set `need_search: false`
@@ -176,10 +177,10 @@ interface Plan {
 
 - Focus on information gathering in research steps - delegate all calculations to processing steps
 - Ensure each step has a clear, specific data point or information to collect
-- Create a comprehensive data collection plan that covers the most critical aspects within {{ max_step_num }} steps
-- Prioritize BOTH breadth (covering essential aspects) AND depth (detailed information on each aspect)
-- Never settle for minimal information - the goal is a comprehensive, detailed final report
-- Limited or insufficient information will lead to an inadequate final report
+- Create a comprehensive data collection plan that covers the most critical aspects within EXACTLY {{ max_step_num }} steps
+- Prioritize breadth (covering essential aspects) AND depth (detailed information on each aspect) within the strict step limit
+- Consolidate related information into comprehensive steps rather than creating multiple smaller steps
+- Focus on the most important information that directly addresses the user's question within the {{ max_step_num }} constraint
 - Carefully assess each step's web search or retrieve from URL requirement based on its nature:
   - Research steps (`need_search: true`) for gathering information
   - Processing steps (`need_search: false`) for calculations and data processing
