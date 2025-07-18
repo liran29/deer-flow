@@ -30,6 +30,7 @@ from src.utils.json_utils import repair_json_output
 
 from .types import State
 from ..config import SELECTED_SEARCH_ENGINE, SearchEngine
+from ..utils.search_summarizer import llm_summarize_search_result, format_summarized_result
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,67 @@ def background_investigation_node(state: State, config: RunnableConfig):
             background_investigation_results, ensure_ascii=False
         )
     }
+
+
+def background_investigation_node_enhanced(state: State, config: RunnableConfig):
+    """增强版背景调查节点 - 使用LLM智能摘要压缩搜索结果"""
+    logger.info("Enhanced background investigation node is running.")
+    
+    try:
+        configurable = Configuration.from_runnable_config(config)
+        query = state.get("research_topic")
+        logger.info(f"研究主题: {query}")
+        
+        if SELECTED_SEARCH_ENGINE == SearchEngine.TAVILY.value:
+            # 增加搜索结果数量以获得更全面的信息
+            search_results_count = max(8, configurable.max_search_results)
+            logger.info(f"搜索结果数量: {search_results_count}")
+            
+            searched_content = LoggedTavilySearch(
+                max_results=search_results_count,
+                include_raw_content=True,
+                include_images=True,
+            ).invoke(query)
+            
+            if isinstance(searched_content, list):
+                logger.info(f"开始对 {len(searched_content)} 个搜索结果进行LLM摘要...")
+                
+                # 对每个搜索结果使用LLM进行智能摘要
+                compressed_results = []
+                for i, elem in enumerate(searched_content):
+                    logger.info(f"正在摘要第 {i+1}/{len(searched_content)} 个结果: {elem.get('title', '')[:50]}...")
+                    
+                    # 使用LLM生成摘要
+                    summary = llm_summarize_search_result(elem, query)
+                    
+                    # 格式化摘要结果
+                    formatted_result = format_summarized_result(elem, summary)
+                    compressed_results.append(formatted_result)
+                
+                logger.info("LLM摘要完成，返回压缩后的结果")
+                return {
+                    "background_investigation_results": "\n\n".join(compressed_results)
+                }
+            else:
+                logger.error(f"Tavily search returned malformed response: {searched_content}")
+                return {"background_investigation_results": "搜索结果格式异常"}
+        else:
+            # 对于其他搜索引擎，暂时使用原始方法
+            background_investigation_results = get_web_search_tool(
+                configurable.max_search_results
+            ).invoke(query)
+            
+            return {
+                "background_investigation_results": json.dumps(
+                    background_investigation_results, ensure_ascii=False
+                )
+            }
+    
+    except Exception as e:
+        logger.error(f"Enhanced background investigation failed: {str(e)}", exc_info=True)
+        # 降级到原始方法
+        logger.info("降级到原始背景调查方法")
+        return background_investigation_node(state, config)
 
 
 def planner_node(

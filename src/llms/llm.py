@@ -9,6 +9,7 @@ import httpx
 from langchain_core.language_models import BaseChatModel
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_deepseek import ChatDeepSeek
+from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import get_args
 
 from src.config import load_yaml_config
@@ -84,6 +85,16 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         http_async_client = httpx.AsyncClient(verify=False)
         merged_conf["http_client"] = http_client
         merged_conf["http_async_client"] = http_async_client
+
+    # gemini models are handled separately above
+    if merged_conf.get("model", "").startswith("gemini"):
+        # For Gemini, use google_api_key instead of api_key
+        google_api_key = merged_conf.pop("api_key", None)
+        if google_api_key:
+            merged_conf["google_api_key"] = google_api_key
+        # Remove base_url as Gemini doesn't use it
+        merged_conf.pop("base_url", None)
+        return ChatGoogleGenerativeAI(**merged_conf)
 
     if "azure_endpoint" in merged_conf or os.getenv("AZURE_OPENAI_ENDPOINT"):
         return AzureChatOpenAI(**merged_conf)
