@@ -4,6 +4,7 @@
 import json
 import logging
 import os
+import time
 from typing import Annotated, Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -86,7 +87,9 @@ def background_investigation_node_enhanced(state: State, config: RunnableConfig)
     try:
         configurable = Configuration.from_runnable_config(config)
         query = state.get("research_topic")
+        logger.info(f"State中的所有字段: {list(state.keys())}")
         logger.info(f"研究主题: {query}")
+        logger.info(f"研究主题类型: {type(query)}")
         
         if SELECTED_SEARCH_ENGINE == SearchEngine.TAVILY.value:
             # 增加搜索结果数量以获得更全面的信息
@@ -107,16 +110,31 @@ def background_investigation_node_enhanced(state: State, config: RunnableConfig)
                 for i, elem in enumerate(searched_content):
                     logger.info(f"正在摘要第 {i+1}/{len(searched_content)} 个结果: {elem.get('title', '')[:50]}...")
                     
+                    # 添加延迟以避免API速率限制（除第一个请求外）
+                    if i > 0:
+                        logger.info(f"等待20秒以避免API速率限制...")
+                        time.sleep(2)  # Moonshot API限制每分钟3个请求，即20秒一个请求
+                    
                     # 使用LLM生成摘要
-                    summary = llm_summarize_search_result(elem, query)
+                    summary_result = llm_summarize_search_result(elem, query)
+                    
+                    # 检查是否为有效内容
+                    if not summary_result.get("is_valid", True):
+                        logger.info(f"跳过无效内容: {elem.get('title', '')[:50]}... 原因: {summary_result.get('reason', '')}")
+                        continue
                     
                     # 格式化摘要结果
-                    formatted_result = format_summarized_result(elem, summary)
+                    summary_text = summary_result.get("summary", "")
+                    formatted_result = format_summarized_result(elem, summary_text)
                     compressed_results.append(formatted_result)
                 
                 logger.info("LLM摘要完成，返回压缩后的结果")
+                final_result = "\n\n".join(compressed_results)
+                logger.info(f"最终摘要结果长度: {len(final_result)} 字符")
+                logger.debug(f"最终摘要结果预览: {final_result[:300]}...")
+                
                 return {
-                    "background_investigation_results": "\n\n".join(compressed_results)
+                    "background_investigation_results": final_result
                 }
             else:
                 logger.error(f"Tavily search returned malformed response: {searched_content}")
