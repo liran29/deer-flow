@@ -21,6 +21,17 @@ def is_enhanced_background_investigation_enabled() -> bool:
     enhanced_config = get_enhanced_features_config()
     return enhanced_config.get("enhanced_background_investigation", False)
 
+def is_step_dependency_optimization_enabled() -> bool:
+    """Check if step dependency optimization is enabled
+    
+    This feature optimizes token usage by only passing relevant information
+    from previous steps based on declared dependencies, instead of blindly
+    accumulating all previous step results.
+    """
+    enhanced_config = get_enhanced_features_config()
+    return enhanced_config.get("step_dependency_optimization", False)
+
+
 def has_enhanced_features_enabled() -> bool:
     """Check if any enhanced features are enabled"""
     enhanced_config = get_enhanced_features_config()

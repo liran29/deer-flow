@@ -12,6 +12,13 @@ class StepType(str, Enum):
     PROCESSING = "processing"
 
 
+class DependencyType(str, Enum):
+    NONE = "none"          # No dependency, completely independent research
+    SUMMARY = "summary"    # Only key findings and conclusions (recommended)
+    KEY_POINTS = "key_points"  # Specific data points or metrics only
+    FULL = "full"          # Complete detailed results (use sparingly to avoid token issues)
+
+
 class Step(BaseModel):
     need_search: bool = Field(..., description="Must be explicitly set for each step")
     title: str
@@ -19,6 +26,20 @@ class Step(BaseModel):
     step_type: StepType = Field(..., description="Indicates the nature of the step")
     execution_res: Optional[str] = Field(
         default=None, description="The Step execution result"
+    )
+    
+    # New dependency fields for step optimization
+    depends_on: List[int] = Field(
+        default_factory=list, 
+        description="Array of step indices (0-indexed) that this step needs information from"
+    )
+    dependency_type: DependencyType = Field(
+        default=DependencyType.NONE,
+        description="Level of detail needed from dependent steps"
+    )
+    required_info: List[str] = Field(
+        default_factory=list,
+        description="Specific information types needed when using 'key_points' dependency"
     )
 
 
@@ -51,6 +72,9 @@ class Plan(BaseModel):
                                 "Collect data on market size, growth rates, major players, and investment trends in AI sector."
                             ),
                             "step_type": "research",
+                            "depends_on": [],
+                            "dependency_type": "none",
+                            "required_info": []
                         }
                     ],
                 }

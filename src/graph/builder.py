@@ -15,11 +15,19 @@ from .nodes import (
     coder_node,
     human_feedback_node,
     background_investigation_node,
+)
+
+# Step dependency optimization nodes (imported from separate module)
+from .nodes_enhanced import (
     background_investigation_node_enhanced,
+    planner_node_with_dependencies,
+    researcher_node_with_dependencies,
+    coder_node_with_dependencies,
 )
 
 from src.utils.enhanced_features import (
     is_enhanced_background_investigation_enabled,
+    is_step_dependency_optimization_enabled,
     has_enhanced_features_enabled,
 )
 
@@ -80,15 +88,36 @@ def _build_enhanced_graph():
         else:
             return background_investigation_node(state, config)
     
+    # 创建包装函数来根据配置选择researcher节点
+    def configurable_researcher_node(state, config):
+        if is_step_dependency_optimization_enabled():
+            return researcher_node_with_dependencies(state, config)
+        else:
+            return researcher_node(state, config)
+    
+    # 创建包装函数来根据配置选择planner节点
+    def configurable_planner_node(state, config):
+        if is_step_dependency_optimization_enabled():
+            return planner_node_with_dependencies(state, config)
+        else:
+            return planner_node(state, config)
+    
+    # 创建包装函数来根据配置选择coder节点
+    def configurable_coder_node(state, config):
+        if is_step_dependency_optimization_enabled():
+            return coder_node_with_dependencies(state, config)
+        else:
+            return coder_node(state, config)
+    
     builder = StateGraph(State)
     builder.add_edge(START, "coordinator")
     builder.add_node("coordinator", coordinator_node)
     builder.add_node("background_investigator", configurable_background_investigation_node)
-    builder.add_node("planner", planner_node)
+    builder.add_node("planner", configurable_planner_node)
     builder.add_node("reporter", reporter_node)
     builder.add_node("research_team", research_team_node)
-    builder.add_node("researcher", researcher_node)
-    builder.add_node("coder", coder_node)
+    builder.add_node("researcher", configurable_researcher_node)
+    builder.add_node("coder", configurable_coder_node)
     builder.add_node("human_feedback", human_feedback_node)
     builder.add_edge("background_investigator", "planner")
     builder.add_conditional_edges(

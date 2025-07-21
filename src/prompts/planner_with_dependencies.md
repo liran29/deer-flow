@@ -124,12 +124,51 @@ When planning information gathering, consider these key aspects and ensure COMPR
    - What are the challenges, limitations, and obstacles?
    - What contingencies and mitigations exist?
 
-## Step Constraints
+## Step Dependencies - CRITICAL REQUIREMENT
 
-- **Maximum Steps**: Limit the plan to a maximum of {{ max_step_num }} steps for focused research.
-- Each step should be comprehensive but targeted, covering key aspects rather than being overly expansive.
-- Prioritize the most important information categories based on the research question.
-- Consolidate related research points into single steps where appropriate.
+For each step, you MUST explicitly define its dependencies on previous steps to optimize information flow and prevent token overload:
+
+### Dependency Fields:
+1. **depends_on**: Array of step indices (0-indexed) that this step needs information from
+   - Empty array [] means no dependencies (independent research)
+   - Example: [0, 2] means depends on step 0 and step 2
+
+2. **dependency_type**: Level of detail needed from dependent steps
+   - "none": No dependency, completely independent research
+   - "summary": Only key findings and conclusions (recommended)
+   - "key_points": Specific data points or metrics only
+   - "full": Complete detailed results (use sparingly to avoid token issues)
+
+3. **required_info**: Specific information types needed (when using "key_points")
+   - Example: ["market_size_data", "competitor_list", "growth_rate"]
+
+### Dependency Design Principles:
+- **Minimize Dependencies**: Only declare dependencies when truly necessary
+- **Prefer Summary**: Use "summary" over "full" whenever possible
+- **Be Specific**: When using "key_points", clearly specify what information is needed
+- **Avoid Cycles**: Ensure no circular dependencies (step A depends on B, B depends on A)
+- **Sequential Logic**: Later steps can depend on earlier steps, not vice versa
+
+### Example Step with Dependencies:
+```json
+{
+  "title": "Market Share Comparison Analysis",
+  "description": "Compare market shares between major competitors",
+  "step_type": "research",
+  "need_search": true,
+  "depends_on": [0, 1],
+  "dependency_type": "key_points", 
+  "required_info": ["total_market_size", "competitor_revenue_data", "market_segments"]
+}
+```
+
+## Step Constraints - CRITICAL REQUIREMENT
+
+- **STRICT MAXIMUM**: You MUST limit the plan to EXACTLY {{ max_step_num }} steps. This is a HARD LIMIT that cannot be exceeded.
+- **NO EXCEPTIONS**: Never exceed {{ max_step_num }} steps regardless of topic complexity or comprehensiveness requirements.
+- **Quality over Quantity**: Each step should be comprehensive and cover multiple related aspects to maximize information within the constraint.
+- **Mandatory Consolidation**: Combine related research points into single steps to stay within the {{ max_step_num }} limit.
+- **Prioritization Required**: Focus only on the most critical information categories that directly address the user's question.
 
 ## Execution Rules
 
@@ -140,12 +179,17 @@ When planning information gathering, consider these key aspects and ensure COMPR
   - No need to create information gathering steps
 - If context is insufficient (default assumption):
   - Break down the required information using the Analysis Framework
-  - Create NO MORE THAN {{ max_step_num }} focused and comprehensive steps that cover the most essential aspects
-  - Ensure each step is substantial and covers related information categories
-  - Prioritize breadth and depth within the {{ max_step_num }}-step constraint
+  - Create EXACTLY {{ max_step_num }} focused and comprehensive steps that cover the most essential aspects
+  - Ensure each step is substantial and covers multiple related information categories
+  - NEVER exceed the {{ max_step_num }} step limit - consolidate information into fewer, more comprehensive steps if needed
   - For each step, carefully assess if web search is needed:
     - Research and external data gathering: Set `need_search: true`
     - Internal data processing: Set `need_search: false`
+  - **MANDATORY**: Define step dependencies for each step:
+    - Set `depends_on` to specify which previous steps this step needs
+    - Set `dependency_type` to control the level of detail needed
+    - Set `required_info` when using "key_points" to specify exact data needed
+    - Most steps should be independent or use "summary" dependency to minimize token usage
 - Specify the exact data to be collected in step's `description`. Include a `note` if necessary.
 - Prioritize depth and volume of relevant information - limited information is not acceptable.
 - Use the same language as the user to generate the plan.
@@ -161,6 +205,9 @@ interface Step {
   title: string;
   description: string; // Specify exactly what data to collect. If the user input contains a link, please retain the full Markdown format when necessary.
   step_type: "research" | "processing"; // Indicates the nature of the step
+  depends_on: number[]; // Array of step indices (0-indexed) that this step needs information from
+  dependency_type: "none" | "summary" | "key_points" | "full"; // Level of detail needed from dependent steps
+  required_info: string[]; // Specific information types needed when using "key_points"
 }
 
 interface Plan {
@@ -176,10 +223,10 @@ interface Plan {
 
 - Focus on information gathering in research steps - delegate all calculations to processing steps
 - Ensure each step has a clear, specific data point or information to collect
-- Create a comprehensive data collection plan that covers the most critical aspects within {{ max_step_num }} steps
-- Prioritize BOTH breadth (covering essential aspects) AND depth (detailed information on each aspect)
-- Never settle for minimal information - the goal is a comprehensive, detailed final report
-- Limited or insufficient information will lead to an inadequate final report
+- Create a comprehensive data collection plan that covers the most critical aspects within EXACTLY {{ max_step_num }} steps
+- Prioritize breadth (covering essential aspects) AND depth (detailed information on each aspect) within the strict step limit
+- Consolidate related information into comprehensive steps rather than creating multiple smaller steps
+- Focus on the most important information that directly addresses the user's question within the {{ max_step_num }} constraint
 - Carefully assess each step's web search or retrieve from URL requirement based on its nature:
   - Research steps (`need_search: true`) for gathering information
   - Processing steps (`need_search: false`) for calculations and data processing
