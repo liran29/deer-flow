@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import time
-from typing import Annotated, Literal
+from typing import Literal
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -31,7 +31,7 @@ from src.tools import (
 from src.config.agents import AGENT_LLM_MAP
 from src.config.configuration import Configuration
 from src.llms.llm import get_llm_by_type
-from src.prompts.planner_model import Plan
+from src.prompts.planner_model import Plan, ExecutionStatus
 from src.prompts.template import apply_prompt_template
 from src.utils.json_utils import repair_json_output
 
@@ -251,6 +251,17 @@ def build_context_for_step(current_step_index: int, completed_steps: list, plan:
         dep_step = completed_steps[dep_index]
         dependency_type = getattr(current_step_def, 'dependency_type', 'full')  # Default to full for backward compatibility
         
+        # Check if the dependency step was successful
+        dep_status = getattr(dep_step, 'execution_status', ExecutionStatus.COMPLETED)
+        if dep_status != ExecutionStatus.COMPLETED:
+            logger.warning(f"Dependency step {dep_index} has status '{dep_status.value}', including limited info")
+            context += f"## Step {dep_index + 1}: {dep_step.title} (Status: {dep_status.value})\n"
+            if dep_step.execution_res:
+                context += f"{dep_step.execution_res}\n\n"
+            else:
+                context += "No results available due to execution failure.\n\n"
+            continue
+        
         logger.info(f"Including dependency from step {dep_index} with type '{dependency_type}'")
         
         if dependency_type == "summary":
@@ -379,7 +390,9 @@ async def _execute_agent_step_with_dependencies(
     current_step = None
     completed_steps = []
     for step in current_plan.steps:
-        if not step.execution_res:
+        # Check if step is pending (not yet executed)
+        step_status = getattr(step, 'execution_status', ExecutionStatus.PENDING)
+        if step_status == ExecutionStatus.PENDING and not step.execution_res:
             current_step = step
             break
         else:
@@ -453,27 +466,61 @@ async def _execute_agent_step_with_dependencies(
         recursion_limit = default_recursion_limit
 
     logger.info(f"Agent input: {agent_input}")
-    result = await agent.ainvoke(
-        input=agent_input, config={"recursion_limit": recursion_limit}
-    )
+    
+    try:
+        result = await agent.ainvoke(
+            input=agent_input, config={"recursion_limit": recursion_limit}
+        )
 
-    # Process the result
-    response_content = result["messages"][-1].content
-    logger.debug(f"{agent_name.capitalize()} full response: {response_content}")
+        # Process the result
+        response_content = result["messages"][-1].content
+        logger.debug(f"{agent_name.capitalize()} full response: {response_content}")
 
-    # Update the step with the execution result
-    current_step.execution_res = response_content
-    logger.info(f"Step '{current_step.title}' execution completed by {agent_name}")
+        # Update the step with the execution result
+        current_step.execution_res = response_content
+        current_step.execution_status = ExecutionStatus.COMPLETED
+        logger.info(f"Step '{current_step.title}' execution completed by {agent_name}")
+        
+    except Exception as e:
+        error_message = str(e)
+        logger.error(f"Agent execution failed for step '{current_step.title}': {error_message}")
+        
+        # Handle specific API errors and set appropriate status
+        if "Content Exists Risk" in error_message:
+            logger.warning(f"⚠️  Content Exists Risk detected for step '{current_step.title}' - skipping due to content safety restrictions")
+            current_step.execution_status = ExecutionStatus.SKIPPED
+            current_step.error_message = f"Content Exists Risk: {error_message}"
+            current_step.execution_res = "Step skipped due to content safety restrictions."
+        elif "400" in error_message or "BadRequestError" in error_message:
+            logger.warning(f"⚠️  API Bad Request for step '{current_step.title}' - marking as failed")
+            current_step.execution_status = ExecutionStatus.FAILED
+            current_step.error_message = f"API Error: {error_message}"
+            current_step.execution_res = "Step failed due to API error."
+        elif "429" in error_message or "rate_limit" in error_message.lower():
+            logger.warning(f"⚠️  Rate limit reached for step '{current_step.title}' - marking as failed")
+            current_step.execution_status = ExecutionStatus.RATE_LIMITED
+            current_step.error_message = f"Rate Limit: {error_message}"
+            current_step.execution_res = "Step failed due to API rate limit."
+        else:
+            logger.warning(f"⚠️  Unexpected error for step '{current_step.title}' - marking as failed")
+            current_step.execution_status = ExecutionStatus.FAILED
+            current_step.error_message = f"Unexpected Error: {error_message}"
+            current_step.execution_res = "Step failed due to unexpected error."
+        
+        logger.info(f"Step '{current_step.title}' marked as {current_step.execution_status.value}, continuing to next step")
 
+    # Determine the content to include in messages based on execution result
+    message_content = current_step.execution_res if current_step.execution_res else "Step execution failed"
+    
     return Command(
         update={
             "messages": [
                 HumanMessage(
-                    content=response_content,
+                    content=message_content,
                     name=agent_name,
                 )
             ],
-            "observations": observations + [response_content],
+            "observations": observations + [message_content],
         },
         goto="research_team",
     )

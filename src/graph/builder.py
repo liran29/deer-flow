@@ -89,11 +89,11 @@ def _build_enhanced_graph():
             return background_investigation_node(state, config)
     
     # 创建包装函数来根据配置选择researcher节点
-    def configurable_researcher_node(state, config):
+    async def configurable_researcher_node(state, config):
         if is_step_dependency_optimization_enabled():
-            return researcher_node_with_dependencies(state, config)
+            return await researcher_node_with_dependencies(state, config)
         else:
-            return researcher_node(state, config)
+            return await researcher_node(state, config)
     
     # 创建包装函数来根据配置选择planner节点
     def configurable_planner_node(state, config):
@@ -103,11 +103,11 @@ def _build_enhanced_graph():
             return planner_node(state, config)
     
     # 创建包装函数来根据配置选择coder节点
-    def configurable_coder_node(state, config):
+    async def configurable_coder_node(state, config):
         if is_step_dependency_optimization_enabled():
-            return coder_node_with_dependencies(state, config)
+            return await coder_node_with_dependencies(state, config)
         else:
-            return coder_node(state, config)
+            return await coder_node(state, config)
     
     builder = StateGraph(State)
     builder.add_edge(START, "coordinator")

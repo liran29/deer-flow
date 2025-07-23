@@ -19,6 +19,14 @@ class DependencyType(str, Enum):
     FULL = "full"          # Complete detailed results (use sparingly to avoid token issues)
 
 
+class ExecutionStatus(str, Enum):
+    PENDING = "pending"           # Not yet executed
+    COMPLETED = "completed"       # Successfully completed
+    FAILED = "failed"            # Failed due to unexpected error
+    SKIPPED = "skipped"          # Skipped due to content policy or other restrictions
+    RATE_LIMITED = "rate_limited" # Failed due to API rate limits
+
+
 class Step(BaseModel):
     need_search: bool = Field(..., description="Must be explicitly set for each step")
     title: str
@@ -26,6 +34,16 @@ class Step(BaseModel):
     step_type: StepType = Field(..., description="Indicates the nature of the step")
     execution_res: Optional[str] = Field(
         default=None, description="The Step execution result"
+    )
+    
+    # Execution status and error tracking
+    execution_status: ExecutionStatus = Field(
+        default=ExecutionStatus.PENDING,
+        description="Current execution status of this step"
+    )
+    error_message: Optional[str] = Field(
+        default=None,
+        description="Error message if step failed or was skipped"
     )
     
     # New dependency fields for step optimization

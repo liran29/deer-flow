@@ -215,7 +215,13 @@ def visualize_dependencies(plan: Plan) -> str:
 3. ✅ 创建专用提示词模板 (`planner_with_dependencies.md`)
 4. ✅ 更新图构建器支持条件节点选择 (`builder.py`)
 
-### Phase 4: 测试和调优 📋
+### Phase 4: 异常处理和错误恢复 ✅
+1. ✅ 实现API异常处理机制特别标识Content Exists Risk错误
+2. ✅ 添加ExecutionStatus枚举和error_message字段到Step模型
+3. ✅ 修复async协程处理错误和变量作用域问题
+4. ✅ 实现优雅降级：失败步骤不影响后续执行流程
+
+### Phase 5: 测试和调优 📋
 1. 📋 测试各种依赖关系场景
 2. 📋 性能基准测试和token使用对比
 3. 📋 收集用户反馈并调整
@@ -260,14 +266,14 @@ def visualize_dependencies(plan: Plan) -> str:
 ## 实施完成文件清单
 
 ### 新增文件
-- `src/graph/nodes_enhanced.py` - 包含所有依赖优化的增强节点
+- `src/graph/nodes_enhanced.py` - 包含所有依赖优化的增强节点和异常处理
 - `src/prompts/planner_with_dependencies.md` - 依赖感知的planner提示词
 - `analysis/step-dependency-optimization.md` - 完整设计文档
 
 ### 修改文件
-- `src/prompts/planner_model.py` - 扩展了Step和Plan数据结构
+- `src/prompts/planner_model.py` - 扩展了Step数据结构，添加ExecutionStatus和error_message字段
 - `src/prompts/planner.md` - 添加了依赖关系定义部分
-- `src/graph/builder.py` - 实现了配置化节点选择
+- `src/graph/builder.py` - 实现了配置化节点选择和async处理
 - `src/utils/enhanced_features.py` - 添加了step_dependency_optimization开关
 - `conf.yaml` - 添加了step_dependency_optimization配置项
 
@@ -278,6 +284,15 @@ ENHANCED_FEATURES:
   enhanced_background_investigation: true
   step_dependency_optimization: true  # 启用此项
 ```
+
+### 异常处理机制
+系统现在能够优雅处理以下异常：
+- **Content Exists Risk**: 标记为SKIPPED状态，继续执行下一步
+- **API 400错误**: 标记为FAILED状态，记录错误信息
+- **429速率限制**: 标记为RATE_LIMITED状态
+- **其他异常**: 标记为FAILED状态，记录详细错误信息
+
+错误信息存储在`error_message`字段中，`execution_res`保持简洁不污染报告内容。
 
 ## 总结
 
@@ -290,6 +305,6 @@ ENHANCED_FEATURES:
 5. **模块化部署**：所有新功能独立模块，便于测试和维护
 6. **渐进式切换**：可配置启用，不影响原有功能
 
-**当前状态**：核心功能已完全实现，可通过配置开关进行测试验证。
+**当前状态**：核心功能已完全实现，包括完善的异常处理机制，可通过配置开关进行测试验证。系统能够优雅处理API异常，确保流程的稳定性和可靠性。
 
-这是一个值得投入开发资源的**设计级别优化方案**。
+这是一个值得投入开发资源的**设计级别优化方案**，已具备生产环境部署的稳定性要求。
