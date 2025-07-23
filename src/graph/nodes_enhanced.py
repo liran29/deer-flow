@@ -238,7 +238,7 @@ def build_context_for_step(current_step_index: int, completed_steps: list, plan:
     if not hasattr(current_step_def, 'depends_on') or not current_step_def.depends_on or \
        (hasattr(current_step_def, 'dependency_type') and current_step_def.dependency_type == "none"):
         logger.info(f"Step {current_step_index} has no dependencies, using only current task")
-        return f"# Current Task\n\n## Title\n{current_step.title}\n\n## Description\n{current_step.description}"
+        return f"# Current Step\n\n## Title\n{current_step.title}\n\n## Description\n{current_step.description}"
     
     # Build context from dependencies
     context = "# Relevant Previous Findings\n\n"
@@ -255,9 +255,9 @@ def build_context_for_step(current_step_index: int, completed_steps: list, plan:
         dep_status = getattr(dep_step, 'execution_status', ExecutionStatus.COMPLETED)
         if dep_status != ExecutionStatus.COMPLETED:
             logger.warning(f"Dependency step {dep_index} has status '{dep_status.value}', including limited info")
-            context += f"## Step {dep_index + 1}: {dep_step.title} (Status: {dep_status.value})\n"
+            context += f"## Completed Step {dep_index + 1}: {dep_step.title} (Status: {dep_status.value})\n"
             if dep_step.execution_res:
-                context += f"{dep_step.execution_res}\n\n"
+                context += f"<finding>\n{dep_step.execution_res}\n</finding>\n\n"
             else:
                 context += "No results available due to execution failure.\n\n"
             continue
@@ -267,26 +267,26 @@ def build_context_for_step(current_step_index: int, completed_steps: list, plan:
         if dependency_type == "summary":
             # Generate or use a summary of the step results
             summary = generate_step_summary(dep_step.execution_res)
-            context += f"## Summary from Step {dep_index + 1}: {dep_step.title}\n{summary}\n\n"
+            context += f"## Completed Step {dep_index + 1}: {dep_step.title}\n{summary}\n\n"
             
         elif dependency_type == "key_points":
             # Extract specific required information
             required_info = getattr(current_step_def, 'required_info', [])
             key_info = extract_required_info(dep_step.execution_res, required_info)
-            context += f"## Key Data from Step {dep_index + 1}: {dep_step.title}\n{key_info}\n\n"
+            context += f"## Completed Step {dep_index + 1}: {dep_step.title}\n{key_info}\n\n"
             
         elif dependency_type == "full":
             # Include complete results (use sparingly)
-            context += f"## Complete Results from Step {dep_index + 1}: {dep_step.title}\n"
+            context += f"## Completed Step {dep_index + 1}: {dep_step.title}\n"
             context += f"<finding>\n{dep_step.execution_res}\n</finding>\n\n"
         else:
             # Default to full if unknown type
             logger.warning(f"Unknown dependency type '{dependency_type}', defaulting to full")
-            context += f"## Complete Results from Step {dep_index + 1}: {dep_step.title}\n"
+            context += f"## Completed Step {dep_index + 1}: {dep_step.title}\n"
             context += f"<finding>\n{dep_step.execution_res}\n</finding>\n\n"
     
     # Add current task
-    context += f"# Current Task\n\n## Title\n{current_step.title}\n\n## Description\n{current_step.description}"
+    context += f"# Current Step\n\n## Title\n{current_step.title}\n\n## Description\n{current_step.description}"
     
     return context
 
@@ -384,6 +384,7 @@ async def _execute_agent_step_with_dependencies(
     mechanism that only includes relevant information based on step dependencies.
     """
     current_plan = state.get("current_plan")
+    plan_title = current_plan.title
     observations = state.get("observations", [])
 
     # Find the first unexecuted step
@@ -415,7 +416,7 @@ async def _execute_agent_step_with_dependencies(
     agent_input = {
         "messages": [
             HumanMessage(
-                content=f"{context_content}\n\n## Locale\n\n{state.get('locale', 'en-US')}"
+                content=f"# Research Topic\n\n{plan_title}\n\n{context_content}\n\n## Locale\n\n{state.get('locale', 'en-US')}"
             )
         ]
     }
