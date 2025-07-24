@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mindsdb:
+    image: mindsdb/mindsdb:latest
+    container_name: mindsdb
+    ports:
+      - "47334:47334"  # HTTP API
+      - "47335:47335"  # MySQL Interface
+    volumes:
+      - mindsdb_data:/root/mindsdb
+      - ./config/mindsdb:/root/.mindsdb
+    environment:
+      - MINDSDB_API_HOST=0.0.0.0
+      - MINDSDB_API_PORT=47334
+      - MINDSDB_MYSQL_HOST=0.0.0.0
+      - MINDSDB_MYSQL_PORT=47335
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:47334/api/sql/query", "-X", "POST", "-H", "Content-Type: application/json", "-d", '{"query": "SELECT 1;"}']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - mindsdb_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  mindsdb_data:
+    name: mindsdb_data
+
+networks:
+  mindsdb_network:
+    name: mindsdb_network
+    driver: bridge
