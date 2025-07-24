@@ -194,6 +194,94 @@ class MindsDBMCPTool:
                 "analysis_type": analysis_type
             }
     
+    async def get_table_metadata(self, database: str, table: str) -> Dict[str, Any]:
+        """
+        获取表的详细元数据信息，包括统计信息、枚举值等
+        
+        Args:
+            database: 数据库名
+            table: 表名
+            
+        Returns:
+            包含元数据的字典
+        """
+        try:
+            metadata = {
+                "success": True,
+                "table_name": table,
+                "database": database,
+                "structure": None,
+                "statistics": {},
+                "sample_data": [],
+                "enum_values": {}
+            }
+            
+            # 1. 获取表结构
+            structure_result = await self.get_table_info(database, table)
+            if structure_result.get("success"):
+                metadata["structure"] = structure_result.get("data", [])
+            
+            # 2. 获取基本统计信息
+            try:
+                count_query = f"SELECT COUNT(*) as total_records FROM {database}.{table}"
+                count_result = await self.query_database(database, count_query)
+                if count_result.get("success") and count_result.get("data"):
+                    metadata["statistics"]["total_records"] = count_result["data"][0][0]
+            except:
+                pass
+            
+            # 3. 获取样本数据
+            try:
+                sample_query = f"SELECT * FROM {database}.{table} LIMIT 3"
+                sample_result = await self.query_database(database, sample_query)
+                if sample_result.get("success"):
+                    metadata["sample_data"] = sample_result.get("data", [])
+                    metadata["columns"] = sample_result.get("columns", [])
+            except:
+                pass
+            
+            # 4. 获取字符串字段的枚举值（前10个）
+            if metadata.get("columns"):
+                for i, column in enumerate(metadata["columns"]):
+                    try:
+                        # 尝试获取该字段的不同值
+                        enum_query = f"SELECT DISTINCT {column} FROM {database}.{table} WHERE {column} IS NOT NULL LIMIT 10"
+                        enum_result = await self.query_database(database, enum_query)
+                        if enum_result.get("success") and enum_result.get("data"):
+                            values = [row[0] for row in enum_result["data"] if row[0] is not None]
+                            if values and len(values) <= 10:  # 只有少量不同值时才认为是枚举
+                                metadata["enum_values"][column] = values
+                    except:
+                        continue
+            
+            # 5. 获取时间范围（如果有时间字段）
+            time_columns = ["created_at", "updated_at", "date", "time", "timestamp"]
+            if metadata.get("columns"):
+                for column in metadata["columns"]:
+                    if any(time_col in column.lower() for time_col in time_columns):
+                        try:
+                            range_query = f"SELECT MIN({column}) as min_date, MAX({column}) as max_date FROM {database}.{table} WHERE {column} IS NOT NULL"
+                            range_result = await self.query_database(database, range_query)
+                            if range_result.get("success") and range_result.get("data"):
+                                min_date, max_date = range_result["data"][0]
+                                if min_date and max_date:
+                                    metadata["statistics"]["date_range"] = {
+                                        "column": column,
+                                        "min": str(min_date),
+                                        "max": str(max_date)
+                                    }
+                                    break
+                        except:
+                            continue
+            
+            return metadata
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to get table metadata: {str(e)}"
+            }
+    
     def get_available_databases(self) -> List[str]:
         """
         Get list of available databases.

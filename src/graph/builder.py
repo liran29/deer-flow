@@ -20,6 +20,7 @@ from .nodes import (
 # Step dependency optimization nodes (imported from separate module)
 from .nodes_enhanced import (
     background_investigation_node_enhanced,
+    database_investigation_node,
     planner_node_with_dependencies,
     researcher_node_with_dependencies,
     coder_node_with_dependencies,
@@ -28,6 +29,7 @@ from .nodes_enhanced import (
 from src.utils.enhanced_features import (
     is_enhanced_background_investigation_enabled,
     is_step_dependency_optimization_enabled,
+    is_mindsdb_database_integration_enabled,
     has_enhanced_features_enabled,
 )
 
@@ -82,11 +84,11 @@ def _build_enhanced_graph():
     """Build and return the enhanced state graph with configurable node implementations."""
     
     # 创建一个包装函数来根据配置选择background investigation节点
-    async def configurable_background_investigation_node(state, config):
+    def configurable_background_investigation_node(state, config):
         if is_enhanced_background_investigation_enabled():
-            return await background_investigation_node_enhanced(state, config)
+            return background_investigation_node_enhanced(state, config)
         else:
-            return await background_investigation_node(state, config)
+            return background_investigation_node(state, config)
     
     # 创建包装函数来根据配置选择researcher节点
     async def configurable_researcher_node(state, config):
@@ -119,7 +121,20 @@ def _build_enhanced_graph():
     builder.add_node("researcher", configurable_researcher_node)
     builder.add_node("coder", configurable_coder_node)
     builder.add_node("human_feedback", human_feedback_node)
-    builder.add_edge("background_investigator", "planner")
+    
+    # 检查是否启用MindsDB数据库集成
+    if is_mindsdb_database_integration_enabled():
+        # 添加数据库调查节点
+        builder.add_node("database_investigator", database_investigation_node)
+        # 从coordinator并行到两个investigation节点
+        builder.add_edge("coordinator", "background_investigator")
+        builder.add_edge("coordinator", "database_investigator")
+        # 两个investigation节点都连接到planner
+        builder.add_edge("background_investigator", "planner")
+        builder.add_edge("database_investigator", "planner")
+    else:
+        # 只有background_investigator的传统流程
+        builder.add_edge("background_investigator", "planner")
     builder.add_conditional_edges(
         "research_team",
         continue_to_running_research_team,

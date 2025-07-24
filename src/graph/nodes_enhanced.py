@@ -50,14 +50,19 @@ from ..utils.enhanced_features import is_mindsdb_database_integration_enabled
 logger = logging.getLogger(__name__)
 
 
-async def database_query_node(state: State, config: RunnableConfig):
-    """专门的数据库查询节点 - 从MindsDB获取相关数据"""
-    logger.info("Database query node is running.")
+async def database_investigation_node(state: State, config: RunnableConfig):
+    """数据库调查节点 - 独立的数据库查询节点，与background_investigation并行执行"""
+    logger.info("Database investigation node is running.")
+    
+    # 检查是否启用了MindsDB数据库集成
+    if not is_mindsdb_database_integration_enabled():
+        logger.info("MindsDB数据库集成未启用，跳过数据库调查")
+        return {"database_investigation_results": ""}
     
     try:
         configurable = Configuration.from_runnable_config(config)
         query = state.get("research_topic")
-        logger.info(f"数据库查询主题: {query}")
+        logger.info(f"数据库调查主题: {query}")
         
         # 初始化MindsDB工具和配置
         mindsdb_tool = MindsDBMCPTool()
@@ -71,8 +76,11 @@ async def database_query_node(state: State, config: RunnableConfig):
             logger.info(f"可用数据库: {available_databases}")
             
             if available_databases:
-                # 为每个数据库获取表信息和样本数据
+                # 为每个数据库获取表信息和详细元数据
                 for db_name in available_databases:
+                    if db_name.lower() not in ['htinfo_db', 'ext_ref_db']:
+                        continue  # 只处理我们关心的数据库
+                        
                     table_info = await mindsdb_tool.get_table_info(db_name)
                     
                     if table_info.get("success"):
@@ -80,58 +88,85 @@ async def database_query_node(state: State, config: RunnableConfig):
                         logger.info(f"数据库 {db_name} 中的表: {tables}")
                         database_results += f"\n\n## 数据库 {db_name}\n可用表: {', '.join(tables)}\n"
                         
-                        # 为每个表获取结构信息和少量样本数据
+                        # 为每个表获取详细元数据
                         for table in tables[:3]:  # 限制最多3个表以避免过多数据
                             try:
-                                # 获取表结构
-                                structure_info = await mindsdb_tool.get_table_info(db_name, table)
-                                if structure_info.get("success"):
-                                    database_results += f"\n### 表 {table} 结构:\n"
-                                    for row in structure_info.get("data", [])[:5]:  # 最多5个字段
-                                        database_results += f"  - {row}\n"
+                                logger.info(f"获取表 {table} 的详细元数据...")
+                                # 使用新的元数据方法
+                                metadata = await mindsdb_tool.get_table_metadata(db_name, table)
                                 
-                                # 获取样本数据
-                                sample_query = f"SELECT * FROM {db_name}.{table} LIMIT 2"
-                                result = await mindsdb_tool.query_database(db_name, sample_query)
-                                
-                                if result.get("success") and result.get("data"):
-                                    database_results += f"\n### 表 {table} 样本数据:\n"
-                                    database_results += f"列名: {', '.join(result.get('columns', []))}\n"
-                                    for i, row in enumerate(result.get('data', [])[:2]):
-                                        database_results += f"  记录{i+1}: {row}\n"
+                                if metadata.get("success"):
+                                    database_results += f"\n### 表 {table} 详细信息:\n"
+                                    
+                                    # 表结构
+                                    if metadata.get("structure"):
+                                        database_results += f"**字段结构:**\n"
+                                        for row in metadata["structure"][:5]:  # 最多5个字段
+                                            database_results += f"  - {row}\n"
+                                    
+                                    # 统计信息
+                                    if metadata.get("statistics"):
+                                        stats = metadata["statistics"]
+                                        database_results += f"**统计信息:**\n"
+                                        if "total_records" in stats:
+                                            database_results += f"  - 总记录数: {stats['total_records']}\n"
+                                        if "date_range" in stats:
+                                            dr = stats["date_range"]
+                                            database_results += f"  - 时间范围: {dr['min']} 至 {dr['max']} ({dr['column']})\n"
+                                    
+                                    # 枚举值
+                                    if metadata.get("enum_values"):
+                                        database_results += f"**字段取值范围:**\n"
+                                        for column, values in metadata["enum_values"].items():
+                                            database_results += f"  - {column}: {', '.join(map(str, values))}\n"
+                                    
+                                    # 样本数据
+                                    if metadata.get("sample_data") and metadata.get("columns"):
+                                        database_results += f"**样本数据:**\n"
+                                        database_results += f"列名: {', '.join(metadata['columns'])}\n"
+                                        for i, row in enumerate(metadata["sample_data"][:2]):
+                                            database_results += f"  记录{i+1}: {row}\n"
+                                else:
+                                    # 如果元数据获取失败，降级到基本方法
+                                    logger.warning(f"元数据获取失败，使用基本方法: {metadata.get('error')}")
+                                    structure_info = await mindsdb_tool.get_table_info(db_name, table)
+                                    if structure_info.get("success"):
+                                        database_results += f"\n### 表 {table} 基本信息:\n"
+                                        for row in structure_info.get("data", [])[:5]:
+                                            database_results += f"  - {row}\n"
                                         
                             except Exception as e:
-                                logger.warning(f"查询表 {table} 失败: {str(e)}")
+                                logger.warning(f"查询表 {table} 元数据失败: {str(e)}")
                                 database_results += f"\n### 表 {table}: 查询失败 - {str(e)}\n"
                     else:
                         database_results += f"\n\n## 数据库 {db_name}: 无法获取表信息\n"
                         
             else:
-                database_results = "未找到可用的数据库连接。请检查MindsDB配置。"
+                database_results = ""  # 未找到数据库连接时返回空结果
                 
         except Exception as e:
             logger.error(f"数据库查询过程出错: {str(e)}")
-            database_results = f"数据库查询失败: {str(e)}"
+            database_results = ""  # 数据库查询失败时返回空结果，不干扰其他调查
         
         if database_results:
-            logger.info(f"数据库查询完成，结果长度: {len(database_results)} 字符")
+            logger.info(f"数据库调查完成，结果长度: {len(database_results)} 字符")
             return {
-                "database_query_results": database_results
+                "database_investigation_results": database_results
             }
         else:
             return {
-                "database_query_results": "未能从数据库获取任何信息。"
+                "database_investigation_results": ""
             }
             
     except Exception as e:
-        logger.error(f"Database query node failed: {str(e)}", exc_info=True)
+        logger.error(f"Database investigation node failed: {str(e)}", exc_info=True)
         return {
-            "database_query_results": f"数据库查询节点执行失败: {str(e)}"
+            "database_investigation_results": ""
         }
 
 
-async def background_investigation_node_enhanced(state: State, config: RunnableConfig):
-    """增强版背景调查节点 - 使用LLM智能摘要压缩搜索结果，可选集成数据库查询"""
+def background_investigation_node_enhanced(state: State, config: RunnableConfig):
+    """增强版背景调查节点 - 使用LLM智能摘要压缩搜索结果"""
     logger.info("Enhanced background investigation node is running.")
     
     try:
@@ -140,23 +175,6 @@ async def background_investigation_node_enhanced(state: State, config: RunnableC
         logger.info(f"State中的所有字段: {list(state.keys())}")
         logger.info(f"研究主题: {query}")
         logger.info(f"研究主题类型: {type(query)}")
-        
-        # 检查是否启用了MindsDB数据库集成
-        database_results = ""
-        if is_mindsdb_database_integration_enabled():
-            try:
-                logger.info("MindsDB数据库集成已启用，开始查询本地数据库...")
-                
-                # 直接调用数据库查询节点（现在都是async函数）
-                db_result = await database_query_node(state, config)
-                if db_result and "database_query_results" in db_result:
-                    database_results = db_result["database_query_results"]
-                    logger.info(f"数据库查询结果长度: {len(database_results)} 字符")
-                    
-            except ImportError:
-                logger.warning("MindsDB工具未找到，跳过数据库查询")
-            except Exception as e:
-                logger.warning(f"数据库查询失败: {str(e)}")
         
         if SELECTED_SEARCH_ENGINE == SearchEngine.TAVILY.value:
             # 增加搜索结果数量以获得更全面的信息
@@ -196,22 +214,9 @@ async def background_investigation_node_enhanced(state: State, config: RunnableC
                     compressed_results.append(formatted_result)
                 
                 logger.info("LLM摘要完成，返回压缩后的结果")
-                web_search_result = "\n\n".join(compressed_results)
-                logger.info(f"Web搜索摘要结果长度: {len(web_search_result)} 字符")
-                logger.debug(f"Web搜索摘要结果预览: {web_search_result[:300]}...")
-                
-                # 整合数据库查询结果和Web搜索结果
-                final_result_parts = []
-                if database_results and database_results.strip():
-                    final_result_parts.append(f"**数据库查询结果:**\n{database_results}")
-                    logger.info("已添加数据库查询结果到最终输出")
-                
-                if web_search_result and web_search_result.strip():
-                    final_result_parts.append(f"**Web搜索结果:**\n{web_search_result}")
-                    logger.info("已添加Web搜索结果到最终输出")
-                
-                final_result = "\n\n".join(final_result_parts) if final_result_parts else "未找到相关信息"
-                logger.info(f"最终整合结果长度: {len(final_result)} 字符")
+                final_result = "\n\n".join(compressed_results)
+                logger.info(f"最终摘要结果长度: {len(final_result)} 字符")
+                logger.debug(f"最终摘要结果预览: {final_result[:300]}...")
                 
                 return {
                     "background_investigation_results": final_result
@@ -221,27 +226,14 @@ async def background_investigation_node_enhanced(state: State, config: RunnableC
                 return {"background_investigation_results": "搜索结果格式异常"}
         else:
             # 对于其他搜索引擎，暂时使用原始方法
-            web_search_results = get_web_search_tool(
+            background_investigation_results = get_web_search_tool(
                 configurable.max_search_results
             ).invoke(query)
             
-            web_search_result = json.dumps(web_search_results, ensure_ascii=False)
-            
-            # 整合数据库查询结果和Web搜索结果
-            final_result_parts = []
-            if database_results and database_results.strip():
-                final_result_parts.append(f"**数据库查询结果:**\n{database_results}")
-                logger.info("已添加数据库查询结果到最终输出")
-            
-            if web_search_result and web_search_result.strip():
-                final_result_parts.append(f"**Web搜索结果:**\n{web_search_result}")
-                logger.info("已添加Web搜索结果到最终输出")
-            
-            final_result = "\n\n".join(final_result_parts) if final_result_parts else "未找到相关信息"
-            logger.info(f"最终整合结果长度: {len(final_result)} 字符")
-            
             return {
-                "background_investigation_results": final_result
+                "background_investigation_results": json.dumps(
+                    background_investigation_results, ensure_ascii=False
+                )
             }
     
     except Exception as e:
@@ -266,6 +258,7 @@ def planner_node_with_dependencies(
     # Use a different prompt template for dependency-aware planning
     messages = apply_prompt_template("planner_with_dependencies", state, configurable)
 
+    # 添加Web搜索调查结果
     if state.get("enable_background_investigation") and state.get(
         "background_investigation_results"
     ):
@@ -273,8 +266,21 @@ def planner_node_with_dependencies(
             {
                 "role": "user",
                 "content": (
-                    "background investigation results of user query:\n"
+                    "Web search investigation results of user query:\n"
                     + state["background_investigation_results"]
+                    + "\n"
+                ),
+            }
+        ]
+    
+    # 添加数据库调查结果
+    if state.get("database_investigation_results"):
+        messages += [
+            {
+                "role": "user",
+                "content": (
+                    "Database investigation results of user query:\n"
+                    + state["database_investigation_results"]
                     + "\n"
                 ),
             }

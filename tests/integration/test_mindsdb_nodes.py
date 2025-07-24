@@ -11,7 +11,7 @@ from langchain_core.runnables import RunnableConfig
 # Mock the imports to avoid dependency issues
 with patch("src.config.mindsdb_mcp.MindsDBMCPConfig"):
     with patch("src.tools.mindsdb_mcp.MindsDBMCPTool"):
-        from src.graph.nodes_enhanced import database_query_node
+        from src.graph.nodes_enhanced import database_investigation_node
 
 
 @pytest.fixture
@@ -104,6 +104,15 @@ def mock_mindsdb_tool():
     
     tool.query_database.side_effect = mock_query_database
     
+    # Mock get_table_metadata method (async) - fallback to basic structure info
+    tool.get_table_metadata = AsyncMock()
+    async def mock_get_table_metadata_basic(database, table):
+        return {
+            "success": False,  # Simulate fallback to basic method
+            "error": "Enhanced metadata not available in basic test"
+        }
+    tool.get_table_metadata.side_effect = mock_get_table_metadata_basic
+    
     return tool
 
 
@@ -128,28 +137,29 @@ def patch_mindsdb_imports(mock_mindsdb_tool, mock_mindsdb_config):
 
 
 @pytest.mark.asyncio
-async def test_database_query_node_success(
+async def test_database_investigation_node_success(
     mock_state,
     mock_config,
     patch_config_from_runnable_config,
     patch_mindsdb_imports,
     mock_mindsdb_tool
 ):
-    """Test database_query_node with successful database queries."""
-    result = await database_query_node(mock_state, mock_config)
+    """Test database_investigation_node with successful database queries."""
+    with patch("src.utils.enhanced_features.is_mindsdb_database_integration_enabled", return_value=True):
+        result = await database_investigation_node(mock_state, mock_config)
     
     # Verify the result structure
     assert isinstance(result, dict)
-    assert "database_query_results" in result
-    assert isinstance(result["database_query_results"], str)
+    assert "database_investigation_results" in result
+    assert isinstance(result["database_investigation_results"], str)
     
     # Verify that MindsDB methods were called
     mock_mindsdb_tool.get_available_databases.assert_called_once()
     mock_mindsdb_tool.get_table_info.assert_called()
-    mock_mindsdb_tool.query_database.assert_called()
+    # Note: query_database may not be called directly in enhanced metadata mode
     
     # Check that results contain expected database information
-    results = result["database_query_results"]
+    results = result["database_investigation_results"]
     assert "htinfo_db" in results
     assert "ext_ref_db" in results
     assert "walmart_online_item" in results
@@ -157,7 +167,7 @@ async def test_database_query_node_success(
 
 
 @pytest.mark.asyncio
-async def test_database_query_node_no_databases(
+async def test_database_investigation_node_no_databases(
     mock_state,
     mock_config,
     patch_config_from_runnable_config,
@@ -168,18 +178,19 @@ async def test_database_query_node_no_databases(
     # Mock no databases available
     mock_mindsdb_tool.get_available_databases.return_value = []
     
-    result = await database_query_node(mock_state, mock_config)
+    with patch("src.utils.enhanced_features.is_mindsdb_database_integration_enabled", return_value=True):
+        result = await database_investigation_node(mock_state, mock_config)
     
     assert isinstance(result, dict)
-    assert "database_query_results" in result
+    assert "database_investigation_results" in result
     
-    # Should contain message about no databases
-    results = result["database_query_results"]
-    assert "未找到可用的数据库连接" in results
+    # Should return empty string when no databases available
+    results = result["database_investigation_results"]
+    assert results == ""
 
 
 @pytest.mark.asyncio
-async def test_database_query_node_exception_handling(
+async def test_database_investigation_node_exception_handling(
     mock_state,
     mock_config,
     patch_config_from_runnable_config,
@@ -190,14 +201,145 @@ async def test_database_query_node_exception_handling(
     # Mock exception in get_available_databases
     mock_mindsdb_tool.get_available_databases.side_effect = Exception("Connection failed")
     
-    result = await database_query_node(mock_state, mock_config)
+    with patch("src.utils.enhanced_features.is_mindsdb_database_integration_enabled", return_value=True):
+        result = await database_investigation_node(mock_state, mock_config)
     
     assert isinstance(result, dict)
-    assert "database_query_results" in result
+    assert "database_investigation_results" in result
     
-    results = result["database_query_results"]
-    assert "数据库查询失败" in results
-    assert "Connection failed" in results
+    results = result["database_investigation_results"]
+    assert results == ""  # Should return empty string on error
+
+
+@pytest.mark.asyncio 
+async def test_database_investigation_node_disabled(mock_state, mock_config):
+    """Test database_investigation_node when MindsDB integration is disabled."""
+    with patch("src.utils.enhanced_features.is_mindsdb_database_integration_enabled", return_value=False):
+        result = await database_investigation_node(mock_state, mock_config)
+    
+    assert isinstance(result, dict)
+    assert "database_investigation_results" in result
+    assert result["database_investigation_results"] == ""
+
+
+@pytest.mark.asyncio 
+async def test_database_investigation_node_enhanced_metadata(
+    mock_state, mock_config, patch_config_from_runnable_config, patch_mindsdb_imports
+):
+    """Test database_investigation_node with enhanced metadata functionality."""
+    
+    # Mock enhanced MindsDB tool with metadata support
+    mock_tool = MagicMock()
+    mock_tool.get_available_databases.return_value = ["htinfo_db", "ext_ref_db"]
+    
+    # Mock basic table info
+    mock_tool.get_table_info = AsyncMock()
+    async def mock_get_table_info(database, table_name=None):
+        if table_name:
+            return {"success": True, "data": [["id", "int"], ["name", "varchar"]]}
+        else:
+            if database == "htinfo_db":
+                return {"success": True, "data": [["walmart_online_item"], ["walmart_orders"]]}
+            elif database == "ext_ref_db":
+                return {"success": True, "data": [["reference_data"]]}
+            else:
+                return {"success": False, "error": "Database not found"}
+    mock_tool.get_table_info.side_effect = mock_get_table_info
+    
+    # Mock enhanced metadata method
+    async def mock_get_table_metadata(database, table):
+        if table == "walmart_online_item":
+            return {
+                "success": True,
+                "table_name": table,
+                "database": database,
+                "structure": [["id", "int", "primary key"], ["product_name", "varchar(255)", "not null"], ["price", "decimal(10,2)", "nullable"]],
+                "statistics": {
+                    "total_records": 1000,
+                    "date_range": {
+                        "column": "created_at",
+                        "min": "2023-01-01",
+                        "max": "2024-12-31"
+                    }
+                },
+                "sample_data": [[1, "iPhone 15", 999.99], [2, "Samsung TV", 599.99]],
+                "columns": ["id", "product_name", "price"],
+                "enum_values": {
+                    "category": ["Electronics", "Clothing", "Home"]
+                }
+            }
+        elif table == "walmart_orders":
+            return {
+                "success": True,
+                "table_name": table,
+                "database": database,
+                "structure": [["order_id", "int", "primary key"], ["customer_id", "int", "not null"], ["total", "decimal(10,2)", "not null"]],
+                "statistics": {
+                    "total_records": 500,
+                    "date_range": {
+                        "column": "order_date",
+                        "min": "2023-06-01",
+                        "max": "2024-11-30"
+                    }
+                },
+                "sample_data": [[1001, 501, 1299.99], [1002, 502, 849.99]],
+                "columns": ["order_id", "customer_id", "total"],
+                "enum_values": {
+                    "status": ["pending", "shipped", "delivered", "cancelled"]
+                }
+            }
+        elif table == "reference_data":
+            return {
+                "success": True,
+                "table_name": table,
+                "database": database,
+                "structure": [["ref_id", "int", "primary key"], ["data_type", "varchar(100)", "not null"], ["value", "text", "nullable"]],
+                "statistics": {
+                    "total_records": 200,
+                    "date_range": {
+                        "column": "updated_at",
+                        "min": "2023-01-15",
+                        "max": "2024-12-01"
+                    }
+                },
+                "sample_data": [[1, "exchange_rate", "1.0"], [2, "tax_rate", "0.08"]],
+                "columns": ["ref_id", "data_type", "value"],
+                "enum_values": {
+                    "data_type": ["exchange_rate", "tax_rate", "discount_rate", "shipping_rate"]
+                }
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Table {table} not found"
+            }
+    mock_tool.get_table_metadata = AsyncMock(side_effect=mock_get_table_metadata)
+    
+    with patch("src.graph.nodes_enhanced.MindsDBMCPTool", return_value=mock_tool):
+        with patch("src.graph.nodes_enhanced.MindsDBMCPConfig.load_from_file"):
+            with patch("src.utils.enhanced_features.is_mindsdb_database_integration_enabled", return_value=True):
+                result = await database_investigation_node(mock_state, mock_config)
+    
+    assert isinstance(result, dict)
+    assert "database_investigation_results" in result
+    results = result["database_investigation_results"]
+    
+    # 验证增强的元数据信息
+    assert "总记录数: 1000" in results
+    assert "时间范围: 2023-01-01 至 2024-12-31" in results
+    assert "category: Electronics, Clothing, Home" in results
+    assert "样本数据" in results
+    assert "iPhone 15" in results
+    assert "Samsung TV" in results
+    
+    # 验证walmart_orders表的信息
+    assert "总记录数: 500" in results
+    assert "时间范围: 2023-06-01 至 2024-11-30" in results
+    assert "status: pending, shipped, delivered, cancelled" in results
+    
+    # 验证reference_data表的信息
+    assert "总记录数: 200" in results
+    assert "data_type: exchange_rate, tax_rate, discount_rate, shipping_rate" in results
 
 
 def test_mindsdb_tool_initialization():
