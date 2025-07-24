@@ -1,0 +1,71 @@
+# MindsDB MCP Server Configuration for deer-flow
+
+mindsdb_mcp:
+  # MCP服务器连接配置
+  server:
+    host: "localhost"
+    port: 47337
+    protocol: "mcp"
+    
+  # 可用的数据库
+  databases:
+    - name: "htinfo_db"
+      description: "主要业务数据库"
+      default: true
+    - name: "ext_ref_db" 
+      description: "外部参考数据"
+      
+  # 可用的AI模型
+  models:
+    - name: "nl2sql_model"
+      description: "自然语言转SQL查询"
+      input_params: ["database", "tables", "question"]
+      
+    - name: "data_insights"
+      description: "数据分析和洞察生成"
+      input_params: ["data"]
+      
+  # MCP工具定义
+  tools:
+    - name: "query_database"
+      description: "Execute SQL queries on connected databases"
+      parameters:
+        database: "string"
+        query: "string"
+        
+    - name: "analyze_data"
+      description: "Analyze data and generate insights"
+      parameters:
+        data: "object"
+        analysis_type: "string"
+        
+    - name: "get_table_info"
+      description: "Get table structure information"
+      parameters:
+        database: "string"
+        table_name: "string"
+        
+    - name: "natural_language_query"
+      description: "Convert natural language to SQL and execute"
+      parameters:
+        question: "string"
+        database: "string"
+        
+  # 集成到deer-flow的代理配置
+  agent_integration:
+    background_investigator:
+      tools:
+        - "get_table_info"
+        - "query_database"
+      prompt_addon: |
+        You have access to database: {{database_info}}
+        Use get_table_info to understand data structure before planning.
+        
+    researcher:
+      tools:
+        - "natural_language_query"
+        - "analyze_data"
+        - "query_database"
+      prompt_addon: |
+        You can query local databases for accurate data.
+        Prefer database queries over web search when data is available locally.

@@ -82,11 +82,11 @@ def _build_enhanced_graph():
     """Build and return the enhanced state graph with configurable node implementations."""
     
     # 创建一个包装函数来根据配置选择background investigation节点
-    def configurable_background_investigation_node(state, config):
+    async def configurable_background_investigation_node(state, config):
         if is_enhanced_background_investigation_enabled():
-            return background_investigation_node_enhanced(state, config)
+            return await background_investigation_node_enhanced(state, config)
         else:
-            return background_investigation_node(state, config)
+            return await background_investigation_node(state, config)
     
     # 创建包装函数来根据配置选择researcher节点
     async def configurable_researcher_node(state, config):

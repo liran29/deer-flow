@@ -32,6 +32,17 @@ def is_step_dependency_optimization_enabled() -> bool:
     return enhanced_config.get("step_dependency_optimization", False)
 
 
+def is_mindsdb_database_integration_enabled() -> bool:
+    """Check if MindsDB database integration is enabled
+    
+    This feature provides local database querying capabilities to agents,
+    allowing them to access structured data directly from MindsDB-connected
+    databases instead of relying solely on web search.
+    """
+    enhanced_config = get_enhanced_features_config()
+    return enhanced_config.get("mindsdb_database_integration", False)
+
+
 def has_enhanced_features_enabled() -> bool:
     """Check if any enhanced features are enabled"""
     enhanced_config = get_enhanced_features_config()
