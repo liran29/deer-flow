@@ -1,0 +1,170 @@
+# 数据库Schema配置文件
+# 支持静态配置和动态获取模式
+
+# 配置模式: static(静态) | dynamic(动态) | hybrid(混合)
+mode: "dynamic"
+
+# 全局设置
+settings:
+  max_tables_per_database: 3  # 每个数据库最多处理的表数量
+  max_fields_per_table: 5     # 每个表最多显示的字段数量
+  max_sample_records: 2       # 每个表最多显示的样本记录数量
+  enable_statistics: true     # 是否包含统计信息
+  enable_enum_values: false   # 是否包含枚举值（数据量大，默认关闭）
+  enable_sample_data: true    # 是否包含样本数据
+
+# 数据库配置
+databases:
+  htinfo_db:
+    name: "HT信息数据库"
+    description: "包含产品、订单、用户等核心业务数据"
+    enabled: true
+    # 当mode为static或hybrid时使用以下配置
+    tables:
+      products:
+        name: "商品表"
+        description: "商品基础信息和属性"
+        priority: 1  # 优先级，数字越小优先级越高
+        fields:
+          - name: "id"
+            type: "INT"
+            description: "商品唯一标识"
+            is_primary_key: true
+          - name: "name"
+            type: "VARCHAR(255)"
+            description: "商品名称"
+            sample_values: ["iPhone 15", "MacBook Pro", "Apple Watch"]
+          - name: "category_id"
+            type: "INT"
+            description: "商品分类ID"
+            enum_values: [1, 2, 3, 4, 5]
+          - name: "price"
+            type: "DECIMAL(10,2)"
+            description: "商品价格"
+            sample_values: [999.99, 1299.99, 399.99]
+          - name: "stock_quantity"
+            type: "INT"
+            description: "库存数量"
+            sample_values: [100, 50, 200]
+          - name: "created_at"
+            type: "DATETIME"
+            description: "创建时间"
+            sample_values: ["2024-01-01 00:00:00", "2024-06-15 12:30:00"]
+        statistics:
+          total_records: 1501
+          date_range:
+            column: "created_at"
+            min: "2023-01-01"
+            max: "2024-12-31"
+        sample_data:
+          - [1, "iPhone 15 Pro", 1, 1299.99, 50, "2024-09-15 10:00:00"]
+          - [2, "MacBook Pro M3", 2, 2499.99, 25, "2024-10-01 14:30:00"]
+          
+      orders:
+        name: "订单表"
+        description: "用户订单信息"
+        priority: 2
+        fields:
+          - name: "id"
+            type: "INT"
+            description: "订单唯一标识"
+            is_primary_key: true
+          - name: "user_id"
+            type: "INT"
+            description: "用户ID"
+          - name: "product_id"
+            type: "INT"
+            description: "商品ID"
+          - name: "quantity"
+            type: "INT"
+            description: "购买数量"
+            sample_values: [1, 2, 3, 5]
+          - name: "total_amount"
+            type: "DECIMAL(10,2)"
+            description: "订单总金额"
+          - name: "order_status"
+            type: "VARCHAR(50)"
+            description: "订单状态"
+            enum_values: ["pending", "confirmed", "shipped", "delivered", "cancelled"]
+          - name: "order_date"
+            type: "DATETIME"
+            description: "下单时间"
+        statistics:
+          total_records: 660
+          date_range:
+            column: "order_date"
+            min: "2024-01-01"
+            max: "2024-12-31"
+        sample_data:
+          - [1, 101, 1, 1, 1299.99, "delivered", "2024-09-20 09:15:00"]
+          - [2, 102, 2, 1, 2499.99, "shipped", "2024-10-05 16:45:00"]
+
+  ext_ref_db:
+    name: "外部参考数据库"
+    description: "外部参考数据和扩展信息"
+    enabled: true
+    tables:
+      market_trends:
+        name: "市场趋势表"
+        description: "市场趋势和分析数据"
+        priority: 1
+        fields:
+          - name: "id"
+            type: "INT"
+            description: "记录ID"
+            is_primary_key: true
+          - name: "trend_category"
+            type: "VARCHAR(100)"
+            description: "趋势分类"
+            enum_values: ["technology", "fashion", "home", "sports", "health"]
+          - name: "trend_value"
+            type: "DECIMAL(5,2)"
+            description: "趋势指数"
+          - name: "analysis_date"
+            type: "DATE"
+            description: "分析日期"
+        statistics:
+          total_records: 450
+          date_range:
+            column: "analysis_date"
+            min: "2024-01-01"
+            max: "2024-12-31"
+        sample_data:
+          - [1, "technology", 85.6, "2024-12-01"]
+          - [2, "fashion", 72.3, "2024-12-01"]
+
+# 动态获取模式的配置
+dynamic_config:
+  # 当mode为dynamic或hybrid时，如果静态配置不存在或获取失败，使用动态获取
+  fallback_to_dynamic: true
+  # 动态获取时的数据库过滤规则
+  database_filter:
+    include: ["htinfo_db", "ext_ref_db"]
+    exclude: ["information_schema", "mysql", "performance_schema"]
+  # 动态获取时的表过滤规则
+  table_filter:
+    exclude_patterns: ["tmp_*", "temp_*", "_backup", "log_*"]
+    include_patterns: ["*"]
+
+# 模板配置
+templates:
+  database_summary: |
+    ## 数据库 {database_name}
+    {description}
+    可用表: {table_list}
+    
+  table_detail: |
+    ### 表 {table_name} 详细信息:
+    {description}
+    
+    **字段结构:**
+    {field_structure}
+    
+    **统计信息:**
+    {statistics}
+    
+    **字段取值范围:**
+    {enum_values}
+    
+    **样本数据:**
+    {sample_data}

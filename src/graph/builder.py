@@ -20,10 +20,15 @@ from .nodes import (
 # Step dependency optimization nodes (imported from separate module)
 from .nodes_enhanced import (
     background_investigation_node_enhanced,
-    database_investigation_node,
     planner_node_with_dependencies,
     researcher_node_with_dependencies,
     coder_node_with_dependencies,
+)
+
+from .nodes_database import (
+    database_investigation_node,
+    database_planner_node,
+    database_reporter_node,
 )
 
 from src.utils.enhanced_features import (
@@ -122,25 +127,30 @@ def _build_enhanced_graph():
     builder.add_node("coder", configurable_coder_node)
     builder.add_node("human_feedback", human_feedback_node)
     
-    # 检查是否启用MindsDB数据库集成
-    if is_mindsdb_database_integration_enabled():
-        # 添加数据库调查节点
-        builder.add_node("database_investigator", database_investigation_node)
-        # 从coordinator并行到两个investigation节点
-        builder.add_edge("coordinator", "background_investigator")
-        builder.add_edge("coordinator", "database_investigator")
-        # 两个investigation节点都连接到planner
-        builder.add_edge("background_investigator", "planner")
-        builder.add_edge("database_investigator", "planner")
-    else:
-        # 只有background_investigator的传统流程
-        builder.add_edge("background_investigator", "planner")
+    # 只有background_investigator的传统流程
+    builder.add_edge("background_investigator", "planner")
     builder.add_conditional_edges(
         "research_team",
         continue_to_running_research_team,
         ["planner", "researcher", "coder"],
     )
     builder.add_edge("reporter", END)
+    return builder
+
+
+def _build_database_graph():
+    """Build and return the database investigation graph."""
+    builder = StateGraph(State)
+    builder.add_edge(START, "database_investigation")
+    
+    builder.add_node("database_investigation", database_investigation_node)
+    builder.add_node("database_planner", database_planner_node)
+    builder.add_node("database_reporter", database_reporter_node)
+    
+    builder.add_edge("database_investigation", "database_planner")
+    builder.add_edge("database_planner", "database_reporter")
+    builder.add_edge("database_reporter", END)
+    
     return builder
 
 
@@ -152,6 +162,10 @@ def build_graph_with_memory():
 
     # Check if any enhanced features are enabled
     if has_enhanced_features_enabled():
+        # If MindsDB database integration is enabled, build the database graph
+        if is_mindsdb_database_integration_enabled():
+            return _build_database_graph().compile(checkpointer=memory)
+
         # If enhanced features are enabled, use the enhanced graph builder
         builder = _build_enhanced_graph()
         return builder.compile(checkpointer=memory)
@@ -166,6 +180,10 @@ def build_graph():
 
     # Check if any enhanced features are enabled
     if has_enhanced_features_enabled():
+        # If MindsDB database integration is enabled, build the database graph
+        if is_mindsdb_database_integration_enabled():
+            return _build_database_graph().compile()
+
         # If enhanced features are enabled, use the enhanced graph builder
         builder = _build_enhanced_graph()
         return builder.compile()
