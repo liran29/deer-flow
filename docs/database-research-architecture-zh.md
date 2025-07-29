@@ -145,18 +145,31 @@ settings:
 ## 实现状态
 
 ### 已完成 ✅
-- 数据库调查节点
-- 数据库计划节点
-- 数据库报告节点（概念性）
+- 数据库调查节点（含LLM集成）
+- 数据库计划节点（结构化输出）
+- 数据库报告节点（完整实现）
+- 数据库研究团队节点（步骤协调）
+- 数据库研究员节点（SQL执行）
+- MindsDB工具集成（查询和表信息）
 - 配置系统
 - 提示词模板
-- 基础图集成
+- 完整图集成（含coordinator）
+- 异步转同步工具适配（LangChain兼容）
+- 查询中自动添加数据库前缀
+- 样本数据限制（最多3行）
+
+### 最近修复 🔧
+- 修复`create_agent`参数以匹配LangChain API
+- 修正代理响应处理（`result["messages"][-1].content`）
+- 更新表信息查询使用`information_schema`
+- 修复SQL查询包装问题
+- 自动为表引用添加数据库前缀
 
 ### 待完成 🔄
-- 实际SQL执行的步骤执行器
-- 真实数据分析实现
-- 与MindsDB查询结果的集成
-- 性能优化
+- 自然语言转SQL（DeepSeek模型问题）
+- 查询结果缓存优化性能
+- 跨数据库连接操作
+- 高级统计分析工具
 
 ## 使用示例
 
@@ -195,14 +208,25 @@ state = State(
 
 测试文件位于`tests/manual/`：
 - `test_database_investigation_with_llm.py` - 测试调查节点
-- `test_database_planner.py` - 测试完整工作流
+- `test_database_planner.py` - 测试计划工作流
+- `test_database_research_team.py` - 测试完整的数据库研究工作流
+
+### 运行测试
+```bash
+# 激活虚拟环境
+. .venv/bin/activate
+
+# 运行完整工作流测试
+python tests/manual/test_database_research_team.py
+```
 
 ## 注意事项
 
-- 当前报告器仅生成概念性报告
-- 实际SQL执行尚未实现
-- 重点关注计划质量和可行性
+- 数据库研究员现在通过MindsDB执行真实的SQL查询
 - 相比Web搜索，Token使用量显著减少
+- 样本数据限制为3行以优化Token消耗
+- 自动数据库前缀确保查询正确执行
+- 完全集成LangGraph状态管理
 
 ## 背景说明
 

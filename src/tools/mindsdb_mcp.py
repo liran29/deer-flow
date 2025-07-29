@@ -3,8 +3,10 @@
 
 import logging
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Annotated
 import requests
+from langchain_core.tools import tool
+from .decorators import log_io
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +37,22 @@ class MindsDBMCPTool:
             Query results as dictionary
         """
         try:
-            # Format query to use specific database
-            full_query = f"SELECT * FROM ({query}) AS subquery"
-            if not query.upper().startswith('SELECT'):
-                full_query = query
+            # Ensure table references include database name
+            full_query = query
+            
+            # If query contains FROM clause without database prefix, add it
+            import re
+            if database and 'FROM' in query.upper():
+                # Pattern to match FROM table_name where table_name doesn't have a dot
+                pattern = r'FROM\s+([^\s.]+)(?:\s|$)'
+                def replace_table(match):
+                    table = match.group(1)
+                    # Only add database prefix if table doesn't already have one
+                    if '.' not in table and not table.upper() in ['(', 'SELECT']:
+                        return f'FROM {database}.{table} '
+                    return match.group(0)
+                
+                full_query = re.sub(pattern, replace_table, query, flags=re.IGNORECASE)
                 
             response = requests.post(
                 self.api_url,
@@ -83,9 +97,10 @@ class MindsDBMCPTool:
         """
         try:
             if table_name:
-                query = f"DESCRIBE {database}.{table_name};"
+                # Use SELECT to get table structure from information_schema
+                query = f"SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = '{database}' AND table_name = '{table_name}';"
             else:
-                query = f"SHOW TABLES FROM {database};"
+                query = f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{database}';"
                 
             response = requests.post(
                 self.api_url,
@@ -308,3 +323,79 @@ class MindsDBMCPTool:
         except Exception as e:
             logger.error(f"Error getting available databases: {str(e)}")
             return []
+
+
+# Create a global instance for the tool
+_mindsdb_instance = MindsDBMCPTool()
+
+
+@tool
+@log_io
+def mindsdb_query_tool(
+    query: Annotated[str, "SQL query to execute on the database"],
+    database: Annotated[str, "Database name to query (e.g., 'htinfo_db')"] = "htinfo_db"
+) -> str:
+    """Execute SQL queries on MindsDB connected databases. Use this tool to query data from available databases."""
+    try:
+        # Convert async method to sync for LangChain compatibility
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(_mindsdb_instance.query_database(database, query))
+        
+        if result.get("success"):
+            data = result.get("data", [])
+            row_count = len(data)
+            # Only show first 3 rows as examples
+            sample_data = data[:3] if row_count > 3 else data
+            
+            return json.dumps({
+                "success": True,
+                "query": query,
+                "database": database,
+                "data": sample_data,
+                "columns": result.get("columns", []),
+                "total_rows": row_count,
+                "message": f"Query executed successfully. Retrieved {row_count} rows. Showing {len(sample_data)} sample rows."
+            }, ensure_ascii=False, indent=2)
+        else:
+            return json.dumps({
+                "success": False,
+                "query": query,
+                "database": database,
+                "error": result.get("error", "Unknown error"),
+                "message": "Query execution failed."
+            }, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"MindsDB query tool error: {str(e)}")
+        return json.dumps({
+            "success": False,
+            "query": query,
+            "database": database,
+            "error": str(e),
+            "message": "Tool execution failed."
+        }, ensure_ascii=False, indent=2)
+
+
+@tool  
+@log_io
+def mindsdb_table_info_tool(
+    database: Annotated[str, "Database name"] = "htinfo_db",
+    table_name: Annotated[str, "Table name (optional, shows all tables if not specified)"] = None
+) -> str:
+    """Get information about database tables including structure and metadata."""
+    try:
+        # Convert async method to sync for LangChain compatibility
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(_mindsdb_instance.get_table_info(database, table_name))
+        
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"MindsDB table info tool error: {str(e)}")
+        return json.dumps({
+            "success": False,
+            "error": str(e),
+            "message": "Failed to get table information."
+        }, ensure_ascii=False, indent=2)

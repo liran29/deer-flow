@@ -29,6 +29,8 @@ from .nodes_database import (
     database_investigation_node,
     database_planner_node,
     database_reporter_node,
+    database_research_team_node,
+    database_researcher_node,
 )
 
 from src.utils.enhanced_features import (
@@ -60,7 +62,30 @@ def continue_to_running_research_team(state: State):
         return "researcher"
     if incomplete_step.step_type == StepType.PROCESSING:
         return "coder"
-    return "planner"
+
+
+def continue_to_running_database_research_team(state: State):
+    """数据库研究团队的条件路由函数"""
+    current_plan = state.get("current_plan")
+    if not current_plan or not current_plan.steps:
+        return "reporter"
+
+    # 检查是否所有步骤都已完成
+    if all(step.execution_res for step in current_plan.steps):
+        return "reporter"
+
+    # 找到第一个未完成的步骤
+    incomplete_step = None
+    for step in current_plan.steps:
+        if not step.execution_res:
+            incomplete_step = step
+            break
+
+    if not incomplete_step:
+        return "reporter"
+
+    # 对于数据库分析，所有步骤都由researcher处理
+    return "researcher"
 
 
 def _build_base_graph():
@@ -139,17 +164,34 @@ def _build_enhanced_graph():
 
 
 def _build_database_graph():
-    """Build and return the database investigation graph."""
+    """Build and return the database investigation graph with research team."""
     builder = StateGraph(State)
-    builder.add_edge(START, "database_investigation")
+    builder.add_edge(START, "coordinator")
     
-    builder.add_node("database_investigation", database_investigation_node)
-    builder.add_node("database_planner", database_planner_node)
-    builder.add_node("database_reporter", database_reporter_node)
+    # 添加所有节点 - 使用与原版一致的节点名称
+    builder.add_node("coordinator", coordinator_node)
+    builder.add_node("background_investigator", database_investigation_node)  # 用database_investigation替代background_investigator
+    builder.add_node("planner", database_planner_node)  # 用database_planner替代原版planner
+    builder.add_node("research_team", database_research_team_node)  # 用database_research_team替代原版research_team
+    builder.add_node("researcher", database_researcher_node)  # 用database_researcher替代原版researcher
+    builder.add_node("reporter", database_reporter_node)  # 用database_reporter替代原版reporter
     
-    builder.add_edge("database_investigation", "database_planner")
-    builder.add_edge("database_planner", "database_reporter")
-    builder.add_edge("database_reporter", END)
+    # 构建图的边 - 遵循原版流程但使用数据库节点
+    builder.add_edge("background_investigator", "planner")  # 调查 -> 计划
+    builder.add_edge("planner", "research_team")  # 计划 -> 研究团队
+    
+    # 条件边：根据步骤完成情况决定下一步
+    builder.add_conditional_edges(
+        "research_team",
+        continue_to_running_database_research_team,
+        ["researcher", "reporter"],
+    )
+    
+    # 执行完步骤后回到团队协调
+    builder.add_edge("researcher", "research_team")
+    
+    # 最终生成报告
+    builder.add_edge("reporter", END)
     
     return builder
 

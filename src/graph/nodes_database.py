@@ -2,7 +2,7 @@ import logging
 import json
 from typing import Literal
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
 
@@ -11,6 +11,8 @@ from src.config.configuration import Configuration
 from src.llms.llm import get_llm_by_type
 from src.prompts.template import apply_prompt_template
 from src.utils.json_utils import repair_json_output
+from src.agents import create_agent
+from src.tools.mindsdb_mcp import mindsdb_query_tool, mindsdb_table_info_tool
 
 from .types import State
 from src.prompts.planner_model import Plan
@@ -123,7 +125,7 @@ async def database_investigation_node(state: State, config: RunnableConfig):
 
 def database_planner_node(
     state: State, config: RunnableConfig
-) -> Command[Literal["database_reporter"]]:
+) -> Command[Literal["research_team"]]:
     """数据库分析计划节点 - 生成数据库查询和分析计划"""
     logger.info("数据库计划节点开始生成计划")
     
@@ -134,7 +136,7 @@ def database_planner_node(
         investigation_results = state.get("database_investigation_results", "")
         if not investigation_results:
             logger.warning("缺少数据库调查结果，无法生成计划")
-            return Command(goto="database_reporter")
+            return Command(goto="research_team")
         
         # 准备LLM消息
         messages = apply_prompt_template("database_planner", state, configurable)
@@ -160,7 +162,7 @@ def database_planner_node(
             curr_plan = json.loads(repair_json_output(full_response))
         except json.JSONDecodeError:
             logger.warning("数据库计划响应不是有效的JSON")
-            return Command(goto="database_reporter")
+            return Command(goto="research_team")
         
         if isinstance(curr_plan, dict):
             new_plan = Plan.model_validate(curr_plan)
@@ -169,14 +171,14 @@ def database_planner_node(
                     "messages": [AIMessage(content=full_response, name="database_planner")],
                     "current_plan": new_plan,
                 },
-                goto="database_reporter",
+                goto="research_team",
             )
         
-        return Command(goto="database_reporter")
+        return Command(goto="research_team")
         
     except Exception as e:
         logger.error(f"数据库计划节点失败: {str(e)}", exc_info=True)
-        return Command(goto="database_reporter")
+        return Command(goto="research_team")
 
 
 async def database_reporter_node(state: State, config: RunnableConfig):
@@ -234,3 +236,120 @@ Based on the above database investigation results and analysis plan, please gene
             "final_report": error_message,
             "messages": [AIMessage(content=error_message)]
         }
+
+
+def database_research_team_node(state: State):
+    """数据库研究团队节点 - 协调数据库查询步骤的执行"""
+    logger.info("数据库研究团队开始协调任务执行")
+    pass
+
+
+async def _execute_database_agent_step(
+    state: State, agent, agent_name: str
+) -> Command[Literal["research_team"]]:
+    """执行数据库分析步骤的辅助函数"""
+    current_plan = state.get("current_plan")
+    if not current_plan:
+        logger.warning("缺少分析计划，无法执行步骤")
+        return Command(goto="research_team")
+    
+    plan_title = current_plan.title
+    observations = state.get("observations", [])
+
+    # 找到第一个未执行的步骤
+    current_step = None
+    completed_steps = []
+    for step in current_plan.steps:
+        if not step.execution_res:
+            current_step = step
+            break
+        else:
+            completed_steps.append(step)
+
+    if not current_step:
+        logger.info("所有步骤已完成，条件路由将处理下一步")
+        return Command(goto="research_team")
+
+    logger.info(f"执行数据库分析步骤: {current_step.title}, 代理: {agent_name}")
+
+    # 格式化已完成步骤的信息
+    completed_steps_info = ""
+    if completed_steps:
+        completed_steps_info = "# 已完成的数据分析步骤\n\n"
+        for i, step in enumerate(completed_steps):
+            completed_steps_info += f"## 已完成步骤 {i + 1}: {step.title}\n\n"
+            completed_steps_info += f"<finding>\n{step.execution_res}\n</finding>\n\n"
+
+    # 为代理准备输入，包含已完成步骤信息
+    agent_input = {
+        "messages": [
+            HumanMessage(
+                content=f"# 数据分析主题\n\n{plan_title}\n\n{completed_steps_info}# 当前步骤\n\n## 标题\n\n{current_step.title}\n\n## 描述\n\n{current_step.description}\n\n## 语言设置\n\n{state.get('locale', 'zh-CN')}"
+            )
+        ]
+    }
+
+    try:
+        # 调用代理执行步骤
+        result = await agent.ainvoke(agent_input)
+        execution_result = result["messages"][-1].content
+
+        # 更新步骤执行结果
+        current_step.execution_res = execution_result
+        
+        # 添加到观察结果
+        observations.append(f"步骤 '{current_step.title}' 执行完成")
+
+        return Command(
+            update={
+                "current_plan": current_plan,
+                "observations": observations,
+                "messages": state["messages"] + [AIMessage(content=execution_result, name=agent_name)]
+            },
+            goto="research_team"
+        )
+
+    except Exception as e:
+        logger.error(f"执行数据库分析步骤失败: {str(e)}", exc_info=True)
+        current_step.execution_res = f"步骤执行失败: {str(e)}"
+        
+        return Command(
+            update={
+                "current_plan": current_plan,
+                "observations": observations + [f"步骤 '{current_step.title}' 执行失败"],
+            },
+            goto="research_team"
+        )
+
+
+async def database_researcher_node(
+    state: State, config: RunnableConfig
+) -> Command[Literal["research_team"]]:
+    """数据库研究员节点 - 执行数据库查询和分析"""
+    logger.info("数据库研究员开始执行查询分析")
+    
+    try:
+        configurable = Configuration.from_runnable_config(config)
+        
+        # 创建MindsDB工具列表
+        tools = [mindsdb_query_tool, mindsdb_table_info_tool]
+        
+        # 创建数据库研究员代理
+        database_researcher_agent = create_agent(
+            agent_name="database_researcher",
+            agent_type="researcher", 
+            tools=tools,
+            prompt_template="researcher"
+        )
+        
+        logger.info(f"数据库研究员工具: {tools}")
+        
+        return await _execute_database_agent_step(
+            state,
+            database_researcher_agent,
+            "database_researcher"
+        )
+        
+    except Exception as e:
+        logger.error(f"数据库研究员节点失败: {str(e)}", exc_info=True)
+        return Command(goto="research_team")
