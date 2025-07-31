@@ -15,9 +15,135 @@ from src.agents import create_agent
 from src.tools.mindsdb_mcp import mindsdb_query_tool, mindsdb_table_info_tool
 
 from .types import State
-from src.prompts.planner_model import Plan
+from src.prompts.planner_model import Plan, QueryStrategy, ResultSize
 
 logger = logging.getLogger(__name__)
+
+
+def _get_strategy_guidance(step) -> str:
+    """根据步骤的查询策略生成执行指导"""
+    strategy = getattr(step, 'query_strategy', QueryStrategy.AGGREGATION)
+    justification = getattr(step, 'justification', '')
+    batch_size = getattr(step, 'batch_size', None)
+    expected_size = getattr(step, 'expected_result_size', ResultSize.SMALL_SET)
+    
+    base_guidance = f"**查询策略**: {strategy.value}\n**选择理由**: {justification}\n**期望结果规模**: {expected_size.value}\n\n"
+    
+    # 添加关键的数据库查询规则
+    base_guidance += """**重要查询规则**:
+- 使用数据库中实际存在的表名：walmart_orders
+- 只使用实际存在的字段名，walmart_orders表的主要字段包括：
+  * id, category, subcategory, ItemDescription
+  * UnitRetail（零售价）, FirstCost（成本）, nums（销量）
+  * year（年份，整数类型）
+  * 注意：没有order_date或month字段！
+- 对于年份过滤：使用 WHERE year = 2024
+- 销售额计算：使用 UnitRetail * nums
+- 避免使用不存在的字段如month, order_date等
+
+"""
+    
+    if strategy == QueryStrategy.AGGREGATION:
+        return base_guidance + """**执行指导**:
+- 优先使用SQL聚合函数：COUNT(), SUM(), AVG(), MAX(), MIN()
+- 使用GROUP BY进行分类统计
+- 避免查询原始详细数据，专注于统计分析
+- 示例查询模式：
+  ```sql
+  SELECT category, COUNT(*) as product_count, 
+         SUM(nums) as total_quantity,
+         SUM(UnitRetail * nums) as total_sales
+  FROM walmart_orders 
+  WHERE year = 2024 
+  GROUP BY category
+  ```"""
+    
+    elif strategy == QueryStrategy.SAMPLING:
+        sample_size = batch_size or 20
+        return base_guidance + f"""**执行指导**:
+- 限制查询结果数量，使用 LIMIT {sample_size}
+- 优先选择有代表性的样本数据
+- 可以使用条件筛选找到典型案例
+- 示例查询模式：
+  ```sql
+  SELECT * FROM table 
+  WHERE interesting_condition 
+  ORDER BY relevance_column 
+  LIMIT {sample_size}
+  ```"""
+    
+    elif strategy == QueryStrategy.PAGINATION:
+        batch_size_val = batch_size or 1000
+        return base_guidance + f"""**执行指导**:
+- 使用分批查询：LIMIT {batch_size_val} OFFSET <offset>
+- 对每批数据立即进行分析和总结
+- 不要累积原始数据，只保留分析结果
+- 分批处理逻辑：
+  ```sql
+  -- 第1批
+  SELECT * FROM table LIMIT {batch_size_val} OFFSET 0
+  -- 分析本批数据并总结
+  -- 第2批
+  SELECT * FROM table LIMIT {batch_size_val} OFFSET {batch_size_val}
+  ```"""
+    
+    elif strategy == QueryStrategy.WINDOW_ANALYSIS:
+        return base_guidance + """**执行指导**:
+- 使用窗口函数进行高级分析
+- 适用于排名、累计、移动平均等分析
+- 示例查询模式：
+  ```sql
+  SELECT *, 
+         ROW_NUMBER() OVER (ORDER BY metric DESC) as rank,
+         SUM(amount) OVER (ORDER BY date) as running_total
+  FROM table 
+  WHERE conditions
+  ```"""
+    
+    else:
+        return base_guidance + "使用标准的数据库查询方法。"
+
+
+def _analyze_execution_result(step, execution_result: str) -> dict:
+    """分析步骤执行结果的效率"""
+    analysis = {
+        "is_efficient": True,
+        "warnings": [],
+        "suggestions": [],
+        "data_volume_estimate": "unknown"
+    }
+    
+    # 检查是否返回了大量数据的迹象
+    large_data_indicators = [
+        "Retrieved 100",
+        "Retrieved 200", 
+        "Retrieved 500",
+        "Retrieved 1000",
+        "rows.",
+        "total_rows"
+    ]
+    
+    if any(indicator in execution_result for indicator in large_data_indicators):
+        analysis["is_efficient"] = False
+        analysis["warnings"].append("查询可能返回了大量数据")
+        
+        strategy = getattr(step, 'query_strategy', QueryStrategy.AGGREGATION) 
+        if strategy == QueryStrategy.AGGREGATION:
+            analysis["suggestions"].append("聚合策略应该返回汇总数据，而非大量原始数据")
+        elif strategy == QueryStrategy.SAMPLING:
+            batch_size = getattr(step, 'batch_size', 20)
+            analysis["suggestions"].append(f"采样策略应该限制在{batch_size}行以内")
+    
+    # 检查是否正确使用了聚合函数
+    aggregation_indicators = ["COUNT", "SUM", "AVG", "GROUP BY", "统计", "总计", "平均"]
+    if any(indicator in execution_result.upper() for indicator in aggregation_indicators):
+        analysis["data_volume_estimate"] = "aggregated"
+    elif "LIMIT" in execution_result.upper():
+        analysis["data_volume_estimate"] = "limited"
+    else:
+        analysis["data_volume_estimate"] = "potentially_large"
+    
+    return analysis
 
 
 def validate_llm_response(response_content: str) -> bool:
@@ -280,11 +406,14 @@ async def _execute_database_agent_step(
             completed_steps_info += f"## 已完成步骤 {i + 1}: {step.title}\n\n"
             completed_steps_info += f"<finding>\n{step.execution_res}\n</finding>\n\n"
 
-    # 为代理准备输入，包含已完成步骤信息
+    # 根据查询策略定制agent输入
+    strategy_guidance = _get_strategy_guidance(current_step)
+    
+    # 为代理准备输入，包含已完成步骤信息和策略指导
     agent_input = {
         "messages": [
             HumanMessage(
-                content=f"# 数据分析主题\n\n{plan_title}\n\n{completed_steps_info}# 当前步骤\n\n## 标题\n\n{current_step.title}\n\n## 描述\n\n{current_step.description}\n\n## 语言设置\n\n{state.get('locale', 'zh-CN')}"
+                content=f"# 数据分析主题\n\n{plan_title}\n\n{completed_steps_info}# 当前步骤\n\n## 标题\n\n{current_step.title}\n\n## 描述\n\n{current_step.description}\n\n## 查询策略指导\n\n{strategy_guidance}\n\n## 语言设置\n\n{state.get('locale', 'zh-CN')}"
             )
         ]
     }
@@ -294,11 +423,22 @@ async def _execute_database_agent_step(
         result = await agent.ainvoke(agent_input)
         execution_result = result["messages"][-1].content
 
+        # 分析执行效率
+        efficiency_analysis = _analyze_execution_result(current_step, execution_result)
+        
+        # 记录效率分析结果
+        if not efficiency_analysis["is_efficient"]:
+            logger.warning(f"步骤 '{current_step.title}' 执行效率预警: {efficiency_analysis['warnings']}")
+            for suggestion in efficiency_analysis["suggestions"]:
+                logger.info(f"优化建议: {suggestion}")
+        
+        logger.info(f"步骤 '{current_step.title}' 数据量估计: {efficiency_analysis['data_volume_estimate']}")
+
         # 更新步骤执行结果
         current_step.execution_res = execution_result
         
         # 添加到观察结果
-        observations.append(f"步骤 '{current_step.title}' 执行完成")
+        observations.append(f"步骤 '{current_step.title}' 执行完成 (策略: {getattr(current_step, 'query_strategy', 'unknown').value if hasattr(getattr(current_step, 'query_strategy', None), 'value') else 'unknown'})")
 
         return Command(
             update={

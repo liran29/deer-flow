@@ -70,6 +70,22 @@ Provide a brief summary of how to approach this analysis, considering the availa
 7. Think about aggregations, filters, and groupings needed
 8. If the query mentions specific brands, products, or categories, identify relevant filtering criteria
 
+## Critical Database Schema Notes
+
+IMPORTANT: When analyzing available database information:
+1. **Use exact table names**: Always use the exact table names as shown in the database schema
+2. **Use exact field names**: Always use the exact field names as shown in the database schema
+3. **Check field types**: Verify field types before suggesting date/time operations
+4. **Date field handling**: 
+   - If a table has a 'year' field instead of date fields, use simple comparisons (e.g., year = 2024)
+   - Avoid date functions like EXTRACT() unless you confirm the field is a date/datetime type
+   - Do NOT assume fields like 'month' or 'order_date' exist unless explicitly shown in schema
+5. **Common walmart_orders fields**:
+   - category, subcategory, ItemDescription (product info)
+   - UnitRetail, FirstCost, nums (pricing and sales)
+   - year (time dimension - INTEGER type, not date)
+   - NO month or order_date fields exist!
+
 ## Examples of Analysis Types
 - Trend Analysis (time-based patterns)
 - Comparative Analysis (comparing entities)
