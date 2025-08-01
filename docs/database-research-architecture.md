@@ -187,22 +187,109 @@ state = State(
 # 3. Reporter → Creates conceptual report based on plan
 ```
 
+## Query Optimization Strategy
+
+### Problem Statement
+Database researcher was executing inefficient queries that retrieved large datasets (e.g., 849 rows), causing:
+- Performance issues and slow queries
+- Excessive memory usage
+- Unnecessary data transmission
+- Potential token consumption problems
+
+### Solution: Intelligent Query Planning
+
+#### Core Principles
+1. **Data Analysis Essence**: 90% of data analysis is statistical aggregation, not raw data viewing
+2. **Responsibility Separation**: Planner makes strategy decisions, Researcher executes efficiently
+3. **Database-Level Processing**: Use SQL aggregation functions to process data at source
+
+#### Enhanced Step Model
+```python
+class Step(BaseModel):
+    title: str
+    description: str
+    query_strategy: Literal["aggregation", "sampling", "pagination", "window_analysis"] = "aggregation"
+    batch_size: Optional[int] = None
+    max_batches: Optional[int] = None
+    sampling_rate: Optional[float] = None
+    justification: str  # Why this strategy was chosen
+    expected_result_size: Literal["single_value", "small_set", "medium_set"] = "small_set"
+```
+
+#### Query Strategy Types
+
+1. **Aggregation** (90% of cases):
+   ```sql
+   SELECT DATE(created_at), COUNT(*), SUM(amount) 
+   FROM orders GROUP BY DATE(created_at)
+   ```
+
+2. **Sampling** (exploratory analysis):
+   ```sql
+   SELECT * FROM large_table WHERE RAND() < 0.01 LIMIT 100
+   ```
+
+3. **Pagination** (detailed data needed):
+   - Process data in batches
+   - Summarize each batch immediately
+   - Return summaries, not raw data
+
+4. **Window Analysis** (advanced statistics):
+   ```sql
+   SELECT product_id, sales,
+          ROW_NUMBER() OVER (ORDER BY sales DESC) as rank
+   FROM product_sales WHERE rank <= 100
+   ```
+
+#### Example: "View all 2024 orders"
+
+**Intelligent Planner generates:**
+```python
+Plan(steps=[
+    Step(title="Order Overview Statistics", 
+         query_strategy="aggregation",
+         justification="Basic metrics using aggregate functions"),
+    Step(title="Monthly Trend Analysis",
+         query_strategy="aggregation", 
+         justification="Time series analysis with GROUP BY month"),
+    Step(title="Category Distribution",
+         query_strategy="aggregation",
+         justification="Classification analysis with GROUP BY category"),
+    Step(title="Anomaly Detection",
+         query_strategy="sampling",
+         batch_size=10,
+         justification="Only need few examples for illustration")
+])
+```
+
+**Resulting efficient queries:**
+- Overview: `SELECT COUNT(*), SUM(amount), AVG(amount) FROM orders WHERE YEAR(date)=2024`
+- Trends: `SELECT MONTH(date), COUNT(*) FROM orders WHERE YEAR(date)=2024 GROUP BY MONTH(date)`
+- Distribution: `SELECT category, COUNT(*) FROM orders WHERE YEAR(date)=2024 GROUP BY category`
+- Samples: `SELECT * FROM orders WHERE YEAR(date)=2024 AND amount > (SELECT AVG(amount)+3*STDDEV(amount) FROM orders WHERE YEAR(date)=2024) LIMIT 10`
+
+### Implementation Status
+- ✅ Architecture design completed
+- 🔄 Step model enhancement pending  
+- 🔄 Planner prompt updates pending
+- 🔄 Researcher execution logic updates pending
+
 ## Future Enhancements
 
-1. **Step Executor Implementation**
-   - Execute actual SQL queries
-   - Handle query results
-   - Pass real data to reporter
+1. **Advanced Statistical Functions**
+   - Percentile calculations
+   - Correlation analysis
+   - Time series decomposition
 
-2. **Advanced Analysis Features**
-   - Statistical calculations
-   - Trend analysis
-   - Predictive modeling
+2. **Query Performance Monitoring**
+   - Execution time tracking
+   - Query optimization suggestions
+   - Resource usage metrics
 
-3. **Optimization**
-   - Query caching
-   - Parallel execution
-   - Result streaming
+3. **Adaptive Batch Processing**
+   - Dynamic batch size adjustment
+   - Memory-aware processing
+   - Progressive result streaming
 
 ## Testing
 

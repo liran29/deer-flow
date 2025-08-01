@@ -21,91 +21,51 @@ logger = logging.getLogger(__name__)
 
 
 def _get_strategy_guidance(step) -> str:
-    """根据步骤的查询策略生成执行指导"""
+    """Generate execution guidance based on query strategy"""
+    import os
+    from jinja2 import Template
+    
     strategy = getattr(step, 'query_strategy', QueryStrategy.AGGREGATION)
     justification = getattr(step, 'justification', '')
     batch_size = getattr(step, 'batch_size', None)
     expected_size = getattr(step, 'expected_result_size', ResultSize.SMALL_SET)
     
-    base_guidance = f"**查询策略**: {strategy.value}\n**选择理由**: {justification}\n**期望结果规模**: {expected_size.value}\n\n"
+    # Load strategy guidance from prompt file
+    strategy_file = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), 
+        "prompts", 
+        "database_query_strategy.md"
+    )
     
-    # 添加关键的数据库查询规则
-    base_guidance += """**重要查询规则**:
-- 使用数据库中实际存在的表名：walmart_orders
-- 只使用实际存在的字段名，walmart_orders表的主要字段包括：
-  * id, category, subcategory, ItemDescription
-  * UnitRetail（零售价）, FirstCost（成本）, nums（销量）
-  * year（年份，整数类型）
-  * 注意：没有order_date或month字段！
-- 对于年份过滤：使用 WHERE year = 2024
-- 销售额计算：使用 UnitRetail * nums
-- 避免使用不存在的字段如month, order_date等
-
-"""
-    
-    if strategy == QueryStrategy.AGGREGATION:
-        return base_guidance + """**执行指导**:
-- 优先使用SQL聚合函数：COUNT(), SUM(), AVG(), MAX(), MIN()
-- 使用GROUP BY进行分类统计
-- 避免查询原始详细数据，专注于统计分析
-- 示例查询模式：
-  ```sql
-  SELECT category, COUNT(*) as product_count, 
-         SUM(nums) as total_quantity,
-         SUM(UnitRetail * nums) as total_sales
-  FROM walmart_orders 
-  WHERE year = 2024 
-  GROUP BY category
-  ```"""
-    
-    elif strategy == QueryStrategy.SAMPLING:
-        sample_size = batch_size or 20
-        return base_guidance + f"""**执行指导**:
-- 限制查询结果数量，使用 LIMIT {sample_size}
-- 优先选择有代表性的样本数据
-- 可以使用条件筛选找到典型案例
-- 示例查询模式：
-  ```sql
-  SELECT * FROM table 
-  WHERE interesting_condition 
-  ORDER BY relevance_column 
-  LIMIT {sample_size}
-  ```"""
-    
-    elif strategy == QueryStrategy.PAGINATION:
-        batch_size_val = batch_size or 1000
-        return base_guidance + f"""**执行指导**:
-- 使用分批查询：LIMIT {batch_size_val} OFFSET <offset>
-- 对每批数据立即进行分析和总结
-- 不要累积原始数据，只保留分析结果
-- 分批处理逻辑：
-  ```sql
-  -- 第1批
-  SELECT * FROM table LIMIT {batch_size_val} OFFSET 0
-  -- 分析本批数据并总结
-  -- 第2批
-  SELECT * FROM table LIMIT {batch_size_val} OFFSET {batch_size_val}
-  ```"""
-    
-    elif strategy == QueryStrategy.WINDOW_ANALYSIS:
-        return base_guidance + """**执行指导**:
-- 使用窗口函数进行高级分析
-- 适用于排名、累计、移动平均等分析
-- 示例查询模式：
-  ```sql
-  SELECT *, 
-         ROW_NUMBER() OVER (ORDER BY metric DESC) as rank,
-         SUM(amount) OVER (ORDER BY date) as running_total
-  FROM table 
-  WHERE conditions
-  ```"""
-    
-    else:
-        return base_guidance + "使用标准的数据库查询方法。"
+    try:
+        with open(strategy_file, 'r', encoding='utf-8') as f:
+            strategy_template = f.read()
+        
+        # Create context for template rendering
+        context = {
+            'strategy': strategy.value,
+            'justification': justification,
+            'expected_size': expected_size.value,
+            'batch_size': batch_size or 20
+        }
+        
+        # Render template with context
+        template = Template(strategy_template)
+        rendered_guidance = template.render(**context)
+        
+        # Add strategy-specific header
+        header = f"**Query Strategy**: {strategy.value}\n**Justification**: {justification}\n**Expected Result Size**: {expected_size.value}\n\n"
+        
+        return header + rendered_guidance
+        
+    except Exception as e:
+        logger.error(f"Failed to load strategy guidance: {str(e)}")
+        # Fallback to minimal guidance
+        return f"**Query Strategy**: {strategy.value}\n**Justification**: {justification}\nPlease use appropriate SQL patterns for {strategy.value} strategy."
 
 
 def _analyze_execution_result(step, execution_result: str) -> dict:
-    """分析步骤执行结果的效率"""
+    """Analyze execution result efficiency"""
     analysis = {
         "is_efficient": True,
         "warnings": [],
@@ -401,9 +361,9 @@ async def _execute_database_agent_step(
     # 格式化已完成步骤的信息
     completed_steps_info = ""
     if completed_steps:
-        completed_steps_info = "# 已完成的数据分析步骤\n\n"
+        completed_steps_info = "# Previously Completed Analysis Steps\n\n"
         for i, step in enumerate(completed_steps):
-            completed_steps_info += f"## 已完成步骤 {i + 1}: {step.title}\n\n"
+            completed_steps_info += f"## Completed Step {i + 1}: {step.title}\n\n"
             completed_steps_info += f"<finding>\n{step.execution_res}\n</finding>\n\n"
 
     # 根据查询策略定制agent输入
@@ -413,7 +373,7 @@ async def _execute_database_agent_step(
     agent_input = {
         "messages": [
             HumanMessage(
-                content=f"# 数据分析主题\n\n{plan_title}\n\n{completed_steps_info}# 当前步骤\n\n## 标题\n\n{current_step.title}\n\n## 描述\n\n{current_step.description}\n\n## 查询策略指导\n\n{strategy_guidance}\n\n## 语言设置\n\n{state.get('locale', 'zh-CN')}"
+                content=f"# Database Analysis Topic\n\n{plan_title}\n\n{completed_steps_info}# Current Step\n\n## Title\n\n{current_step.title}\n\n## Description\n\n{current_step.description}\n\n## Query Strategy Guidance\n\n{strategy_guidance}\n\n## Language Setting\n\n{state.get('locale', 'zh-CN')}"
             )
         ]
     }

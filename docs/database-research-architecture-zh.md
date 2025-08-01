@@ -187,22 +187,109 @@ state = State(
 # 3. 报告 → 基于计划创建概念性报告
 ```
 
+## 查询优化策略
+
+### 问题描述
+数据库研究员执行了低效查询，获取大量数据集（如849行），导致：
+- 性能问题和查询缓慢
+- 内存使用过多
+- 不必要的数据传输
+- 潜在的Token消耗问题
+
+### 解决方案：智能查询规划
+
+#### 核心原则
+1. **数据分析本质**：90%的数据分析是统计聚合，而非原始数据查看
+2. **职责分离**：Planner制定策略决策，Researcher高效执行
+3. **数据库层处理**：使用SQL聚合函数在源头处理数据
+
+#### 增强的步骤模型
+```python
+class Step(BaseModel):
+    title: str
+    description: str
+    query_strategy: Literal["aggregation", "sampling", "pagination", "window_analysis"] = "aggregation"
+    batch_size: Optional[int] = None
+    max_batches: Optional[int] = None
+    sampling_rate: Optional[float] = None
+    justification: str  # 选择此策略的理由
+    expected_result_size: Literal["single_value", "small_set", "medium_set"] = "small_set"
+```
+
+#### 查询策略类型
+
+1. **聚合查询**（90%的情况）：
+   ```sql
+   SELECT DATE(created_at), COUNT(*), SUM(amount) 
+   FROM orders GROUP BY DATE(created_at)
+   ```
+
+2. **采样查询**（探索性分析）：
+   ```sql
+   SELECT * FROM large_table WHERE RAND() < 0.01 LIMIT 100
+   ```
+
+3. **分页查询**（需要详细数据时）：
+   - 分批处理数据
+   - 立即总结每批数据
+   - 返回总结结果，而非原始数据
+
+4. **窗口分析**（高级统计）：
+   ```sql
+   SELECT product_id, sales,
+          ROW_NUMBER() OVER (ORDER BY sales DESC) as rank
+   FROM product_sales WHERE rank <= 100
+   ```
+
+#### 示例："查看2024年所有订单"
+
+**智能Planner生成：**
+```python
+Plan(steps=[
+    Step(title="订单概况统计", 
+         query_strategy="aggregation",
+         justification="使用聚合函数获取基础指标"),
+    Step(title="月度趋势分析",
+         query_strategy="aggregation", 
+         justification="时间序列分析，GROUP BY月份"),
+    Step(title="类别分布分析",
+         query_strategy="aggregation",
+         justification="分类统计分析，GROUP BY类别"),
+    Step(title="异常订单识别",
+         query_strategy="sampling",
+         batch_size=10,
+         justification="只需少量样例用于说明")
+])
+```
+
+**对应的高效查询：**
+- 概况：`SELECT COUNT(*), SUM(amount), AVG(amount) FROM orders WHERE YEAR(date)=2024`
+- 趋势：`SELECT MONTH(date), COUNT(*) FROM orders WHERE YEAR(date)=2024 GROUP BY MONTH(date)`
+- 分布：`SELECT category, COUNT(*) FROM orders WHERE YEAR(date)=2024 GROUP BY category`
+- 样例：`SELECT * FROM orders WHERE YEAR(date)=2024 AND amount > (SELECT AVG(amount)+3*STDDEV(amount) FROM orders WHERE YEAR(date)=2024) LIMIT 10`
+
+### 实现状态
+- ✅ 架构设计已完成
+- 🔄 步骤模型增强待实现
+- 🔄 Planner提示词更新待实现
+- 🔄 Researcher执行逻辑更新待实现
+
 ## 未来增强
 
-1. **步骤执行器实现**
-   - 执行实际的SQL查询
-   - 处理查询结果
-   - 将真实数据传递给报告器
+1. **高级统计函数**
+   - 百分位数计算
+   - 相关性分析
+   - 时间序列分解
 
-2. **高级分析功能**
-   - 统计计算
-   - 趋势分析
-   - 预测建模
+2. **查询性能监控**
+   - 执行时间跟踪
+   - 查询优化建议
+   - 资源使用指标
 
-3. **优化**
-   - 查询缓存
-   - 并行执行
-   - 结果流式传输
+3. **自适应批处理**
+   - 动态批量大小调整
+   - 内存感知处理
+   - 渐进式结果流
 
 ## 测试
 
