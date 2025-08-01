@@ -130,7 +130,11 @@
       "nowPlayingPodcast": "正在播放播客...",
       "podcast": "播客",
       "errorGeneratingPodcast": "生成播客时出错。请重试。",
-      "downloadPodcast": "下载播客"
+      "downloadPodcast": "下载播客",
+      "executingDatabaseQuery": "执行数据库查询",
+      "gettingTableInfo": "获取表信息",
+      "query": "查询",
+      "database": "数据库"
     },
     "messages": {
       "replaying": "回放中",

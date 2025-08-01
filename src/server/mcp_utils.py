@@ -30,7 +30,14 @@ async def _get_tools_from_client_session(
     Raises:
         Exception: If there's an error during the process
     """
-    async with client_context_manager as (read, write, _):
+    # Handle different MCP client return values (some return 2, some return 3)
+    async with client_context_manager as context:
+        if len(context) == 2:
+            read, write = context
+        elif len(context) == 3:
+            read, write, _ = context
+        else:
+            raise ValueError(f"Unexpected context length: {len(context)}")
         async with ClientSession(
             read, write, read_timeout_seconds=timedelta(seconds=timeout_seconds)
         ) as session:

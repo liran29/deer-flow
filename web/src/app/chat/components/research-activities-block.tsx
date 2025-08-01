@@ -4,7 +4,7 @@
 import { PythonOutlined } from "@ant-design/icons";
 import { motion } from "framer-motion";
 import { LRUCache } from "lru-cache";
-import { BookOpenText, FileText, PencilRuler, Search } from "lucide-react";
+import { BookOpenText, FileText, PencilRuler, Search, Database } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
 import { useMemo } from "react";
@@ -99,6 +99,8 @@ function ActivityListItem({ messageId }: { messageId: string }) {
           return <PythonToolCall key={toolCall.id} toolCall={toolCall} />;
         } else if (toolCall.name === "local_search_tool") {
           return <RetrieverToolCall key={toolCall.id} toolCall={toolCall} />;
+        } else if (toolCall.name === "mindsdb_query_tool" || toolCall.name === "mindsdb_table_info_tool") {
+          return <DatabaseToolCall key={toolCall.id} toolCall={toolCall} />;
         } else {
           return <MCPToolCall key={toolCall.id} toolCall={toolCall} />;
         }
@@ -456,6 +458,69 @@ function MCPToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
                       background: "transparent",
                       border: "none",
                       boxShadow: "none",
+                    }}
+                  >
+                    {toolCall.result.trim()}
+                  </SyntaxHighlighter>
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
+    </section>
+  );
+}
+
+function DatabaseToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
+  const t = useTranslations("chat.research");
+  const { resolvedTheme } = useTheme();
+  const isQueryTool = toolCall.name === "mindsdb_query_tool";
+  
+  return (
+    <section className="mt-4 pl-4">
+      <div className="w-fit overflow-y-auto rounded-md py-0">
+        <Accordion type="single" collapsible className="w-full">
+          <AccordionItem value="item-1">
+            <AccordionTrigger>
+              <div className="flex items-center font-medium italic">
+                <Database size={16} className={"mr-2"} />
+                <RainbowText
+                  className="pr-0.5 text-base font-medium italic"
+                  animated={toolCall.result === undefined}
+                >
+                  {isQueryTool ? t("executingDatabaseQuery") : t("gettingTableInfo")}
+                </RainbowText>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              {/* Display query parameters */}
+              {toolCall.args && (
+                <div className="mb-3 text-sm text-muted-foreground">
+                  {isQueryTool && (toolCall.args as any).query && (
+                    <div className="mb-2">
+                      <strong>{t("query")}:</strong> {(toolCall.args as any).query}
+                    </div>
+                  )}
+                  {(toolCall.args as any).database && (
+                    <div>
+                      <strong>{t("database")}:</strong> {(toolCall.args as any).database}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Display results */}
+              {toolCall.result && (
+                <div className="bg-accent max-h-[400px] max-w-[560px] overflow-y-auto rounded-md text-sm">
+                  <SyntaxHighlighter
+                    language="json"
+                    style={resolvedTheme === "dark" ? dark : docco}
+                    customStyle={{
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                      fontSize: "12px",
                     }}
                   >
                     {toolCall.result.trim()}

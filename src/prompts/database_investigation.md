@@ -76,15 +76,18 @@ IMPORTANT: When analyzing available database information:
 1. **Use exact table names**: Always use the exact table names as shown in the database schema
 2. **Use exact field names**: Always use the exact field names as shown in the database schema
 3. **Check field types**: Verify field types before suggesting date/time operations
-4. **Date field handling**: 
-   - If a table has a 'year' field instead of date fields, use simple comparisons (e.g., year = 2024)
-   - Avoid date functions like EXTRACT() unless you confirm the field is a date/datetime type
-   - Do NOT assume fields like 'month' or 'order_date' exist unless explicitly shown in schema
-5. **Common walmart_orders fields**:
-   - category, subcategory, ItemDescription (product info)
-   - UnitRetail, FirstCost, nums (pricing and sales)
-   - year (time dimension - INTEGER type, not date)
-   - NO month or order_date fields exist!
+4. **Database selection**: 
+   - **Amazon-related queries**: Use tables from `ext_ref_db` database (amazon_products, amazon_reviews, amazon_categories)
+   - **Walmart-related queries**: Use tables from both `htinfo_db` (walmart_orders, walmart_online_item) and `ext_ref_db` (walmart_products)
+   - **Cross-platform analysis**: Use both databases as needed
+5. **Table mapping for common analysis types**:
+   - **Product reviews/ratings**: ext_ref_db.amazon_reviews (for Amazon data)
+   - **Product information**: ext_ref_db.amazon_products (Amazon), ext_ref_db.walmart_products (Walmart)
+   - **Sales/orders**: htinfo_db.walmart_orders (Walmart sales data)
+6. **Key field considerations**:
+   - Always verify field names from the actual database schema provided
+   - Do not assume standard field names exist unless confirmed in schema
+   - Pay attention to database prefixes in queries (htinfo_db.table_name vs ext_ref_db.table_name)
 
 ## Examples of Analysis Types
 - Trend Analysis (time-based patterns)

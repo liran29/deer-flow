@@ -263,16 +263,20 @@ Each step MUST include:
 ## Critical Database Query Guidelines
 
 When creating database analysis steps:
-1. **Use exact table names**: Always use the table names exactly as shown in the database schema (e.g., "walmart_orders" not "orders")
-2. **Use exact field names**: Always use field names exactly as shown (e.g., "year" not "order_date")
-3. **Date field handling**:
-   - If a table has only a "year" field (integer), use: WHERE year = 2024
-   - Avoid date functions like EXTRACT() unless the field is confirmed as date/datetime type
-   - For year-based filtering, use simple integer comparisons
-   - Do NOT assume fields like 'month' or 'order_date' exist unless explicitly shown in schema
-4. **Query examples**:
-   - Correct: "SELECT COUNT(*) FROM walmart_orders WHERE year = 2024"
-   - Incorrect: "SELECT COUNT(*) FROM orders WHERE EXTRACT(YEAR FROM order_date) = 2024"
+1. **Use exact table names**: Always use the table names exactly as shown in the database schema
+2. **Use exact field names**: Always use field names exactly as shown in the database schema
+3. **Database selection based on query context**:
+   - **Amazon-related analysis**: Use ext_ref_db database (amazon_products, amazon_reviews, amazon_categories)
+   - **Walmart-related analysis**: Use appropriate database (htinfo_db for orders, ext_ref_db for products)
+   - **Review/rating analysis**: Use ext_ref_db.amazon_reviews for Amazon data
+4. **Field verification**:
+   - Always verify field types from the provided schema
+   - Do NOT assume standard field names exist unless confirmed
+   - Use appropriate filters and functions based on actual field types
+5. **Query construction principles**:
+   - Include database prefix in table names (e.g., "ext_ref_db.amazon_reviews")
+   - Use exact field names as they appear in schema
+   - Match query strategy to data structure and analysis needs
 
 Remember: Your expertise is in maximizing the analytical value of existing database information. Focus on creating plans that extract deep insights from local data while minimizing external dependencies.
 
