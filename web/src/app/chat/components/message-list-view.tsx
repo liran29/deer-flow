@@ -22,6 +22,7 @@ import {
   type ScrollContainerRef,
 } from "~/components/deer-flow/scroll-container";
 import { Tooltip } from "~/components/deer-flow/tooltip";
+import { DatabaseInvestigationMessage } from "~/components/deer-flow/database-investigation-message";
 import { Button } from "~/components/ui/button";
 import {
   Card,
@@ -145,6 +146,7 @@ function MessageListItem({
       message.agent === "coordinator" ||
       message.agent === "planner" ||
       message.agent === "podcast" ||
+      message.agent === "background_investigator" ||
       startOfResearch
     ) {
       let content: React.ReactNode;
@@ -166,6 +168,30 @@ function MessageListItem({
             <PodcastCard message={message} />
           </div>
         );
+      } else if (message.agent === "background_investigator") {
+        console.log("Rendering background_investigator message:", message.content);
+        content = message.content ? (
+          <div className="w-full px-4">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+            >
+              <Card className="w-full">
+                <CardHeader>
+                  <CardTitle>
+                    <Markdown animated={message.isStreaming}>
+                      ### 🔍 Database Investigation
+                    </Markdown>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DatabaseInvestigationMessage content={message.content} />
+                </CardContent>
+              </Card>
+            </motion.div>
+          </div>
+        ) : null;
       } else if (startOfResearch) {
         content = (
           <div className="w-full px-4">

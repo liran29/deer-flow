@@ -161,7 +161,7 @@ async def analyze_query_with_database_info(query: str, database_info: str, confi
         return f"无法生成详细分析建议。查询: {query}"
 
 
-async def database_investigation_node(state: State, config: RunnableConfig):
+async def database_investigation_node(state: State, config: RunnableConfig) -> Command[Literal["planner"]]:
     """数据库调查节点 - 使用LLM分析用户查询并提取数据分析维度"""
     logger.info("Database investigation node is running.")
     
@@ -175,9 +175,23 @@ async def database_investigation_node(state: State, config: RunnableConfig):
         
         if not database_info:
             logger.warning("未获取到数据库信息")
-            return {
-                "database_investigation_results": ""
-            }
+            return Command(
+                update={
+                    "database_investigation_results": "",
+                    "messages": [AIMessage(
+                        content="__DB_INVESTIGATION_NO_DATABASE__",
+                        name="background_investigator"
+                    )]
+                },
+                goto="planner"
+            )
+        
+        # 发送开始消息给前端
+        start_message = AIMessage(
+            content=f"__DB_INVESTIGATION_STARTING__|{query}",
+            name="background_investigator"
+        )
+        logger.info(f"准备发送开始消息: {start_message.content}")
         
         # 使用LLM分析查询和数据库信息
         configurable = Configuration.from_runnable_config(config)
@@ -196,17 +210,38 @@ async def database_investigation_node(state: State, config: RunnableConfig):
 ## Available Database Information
 {database_info}"""
         
+        # 计算数据库数量
+        db_count = len([line for line in database_info.split('\n') if 'Database:' in line])
+        
+        # 创建完成消息
+        completion_message = AIMessage(
+            content=f"__DB_INVESTIGATION_COMPLETED__|{llm_analysis}|{db_count}",
+            name="background_investigator"
+        )
+        
         logger.info(f"数据库调查完成，结果长度: {len(investigation_results)} 字符")
         
-        return {
-            "database_investigation_results": investigation_results
-        }
+        return Command(
+            update={
+                "database_investigation_results": investigation_results,
+                "messages": [start_message, completion_message]
+            },
+            goto="planner"
+        )
             
     except Exception as e:
         logger.error(f"Database investigation node failed: {str(e)}", exc_info=True)
-        return {
-            "database_investigation_results": ""
-        }
+        error_message = AIMessage(
+            content=f"__DB_INVESTIGATION_FAILED__|{str(e)}",
+            name="background_investigator"
+        )
+        return Command(
+            update={
+                "database_investigation_results": "",
+                "messages": [error_message]
+            },
+            goto="planner"
+        )
 
 
 def database_planner_node(
