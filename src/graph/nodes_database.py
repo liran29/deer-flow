@@ -471,7 +471,7 @@ async def database_researcher_node(
         
         # 创建数据库研究员代理
         database_researcher_agent = create_agent(
-            agent_name="database_researcher",
+            agent_name="researcher",
             agent_type="researcher", 
             tools=tools,
             prompt_template="researcher"
@@ -482,7 +482,7 @@ async def database_researcher_node(
         return await _execute_database_agent_step(
             state,
             database_researcher_agent,
-            "database_researcher"
+            "researcher"
         )
         
     except Exception as e:
