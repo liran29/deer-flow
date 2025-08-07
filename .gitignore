@@ -26,3 +26,4 @@ conf.yaml
 # coverage report
 coverage.xml
 coverage/
+conf.yaml.bak

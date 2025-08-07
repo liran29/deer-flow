@@ -8,7 +8,6 @@ This module contains enhanced versions of the original nodes that implement
 token optimization through smart dependency management.
 """
 
-import asyncio
 import json
 import logging
 import os
@@ -79,8 +78,8 @@ def background_investigation_node_enhanced(state: State, config: RunnableConfig)
                     
                     # 添加延迟以避免API速率限制（除第一个请求外）
                     if i > 0:
-                        logger.info(f"等待20秒以避免API速率限制...")
-                        time.sleep(2)  # Moonshot API限制每分钟3个请求，即20秒一个请求
+                        logger.info(f"等待2秒以避免API速率限制...")
+                        time.sleep(2)  # Moonshot API限制每分钟3个请求，即2秒一个请求
                     
                     # 使用LLM生成摘要
                     summary_result = llm_summarize_search_result(elem, query)

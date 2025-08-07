@@ -14,6 +14,9 @@ Please summarize the following search result, retaining key information most rel
 ## Content  
 {{ content }}
 
+## Source URL
+{{ url }}
+
 ## Content Validation
 
 First, evaluate if the content is actually relevant to the title and query:
@@ -30,5 +33,8 @@ First, evaluate if the content is actually relevant to the title and query:
 
 ## Output Format
 
-- For invalid content: Start with `[INVALID]` followed by a brief reason
-- For valid content: Output the summary directly without any prefix
+- For invalid content: Start with `[INVALID]` followed by a brief reason, then include the source URL
+- For valid content: Output the summary followed by the source URL
+
+**Important**: Always include the source URL at the end of your response, formatted as:
+`[SOURCE] [URL]`

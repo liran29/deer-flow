@@ -969,3 +969,65 @@ UNION ALL
 5. 文档更新：更新架构文档记录改进
 
 这个方案既解决了大数据量查询问题，又提升了数据分析的专业性和效率。符合数据分析的本质需求，同时保持了系统架构的清晰性。
+
+> 请提供几个测试这些站点搜索的问题样例
+
+● 基于配置的域名列表，我为你准备了一些测试问题样例，这些问题能够充分利用指定站点的专业内容：
+
+测试问题样例
+
+1. 电商平台与市场分析类
+
+- "沃尔玛在线商城最近推出了哪些新的热门商品类别？"
+- 主要来源：walmart.com, marketplace.walmart.com
+- "根据JungleScout的数据，2024年亚马逊上哪些产品类别增长最快？"
+- 主要来源：junglescout.com, amazon.com
+- "比较沃尔玛和亚马逊在第三方卖家市场份额的最新趋势"
+- 主要来源：statista.com, pwc.com, aboutamazon.com
+
+2. 零售行业研究类
+
+- "根据PWC的最新报告，全球零售业数字化转型的主要趋势是什么？"
+- 主要来源：pwc.com
+- "Conference Board对2025年消费者信心指数的预测如何？"
+- 主要来源：conferenceboard.org
+- "欧洲央行(ECB)最新的货币政策对零售业有什么影响？"
+- 主要来源：ecb.europa.eu
+
+3. 市场研究与策略类
+
+- "MarkWide Research关于全球电商市场规模的最新预测数据"
+- 主要来源：markwideresearch.com
+- "Panmore Institute分析的亚马逊SWOT优劣势有哪些？"
+- 主要来源：panmore.com
+- "FNF Research对零售技术创新的最新洞察"
+- 主要来源：fnfresearch.com
+
+4. 实操指南类
+
+- "如何在沃尔玛Marketplace开店的完整流程指南"
+- 主要来源：sell.walmart.com, goaura.com, youtube.com
+- "亚马逊FBA费用计算和定价策略最佳实践"
+- 主要来源：sell.amazon.com, priceva.com
+
+5. 综合分析类
+
+- "分析2024年节假日购物季的主要消费趋势和热销品类"
+- 多源综合：statista.com, pwc.com, walmart.com, amazon.com
+- "比较不同电商平台的卖家支持政策和佣金结构"
+- 多源综合：marketplace.walmart.com, sell.amazon.com, goaura.com
+
+6. 视频教程类
+
+- "YouTube上关于Walmart Seller Center使用技巧的最新教程"
+- 主要来源：youtube.com
+- "如何优化亚马逊产品listing以提高转化率的视频指南"
+- 主要来源：youtube.com, junglescout.com
+
+这些问题的特点：
+1. 针对性强 - 直接指向配置域名的专业内容
+2. 实用性高 - 涵盖市场分析、操作指南、行业研究等多个维度
+3. 数据导向 - 强调具体数据、报告和分析
+4. 时效性好 - 关注最新趋势和2024-2025年的预测
+
+你可以使用这些问题来测试deer-flow的搜索和分析能力，验证是否能从指定站点获取准确、相关的信息。

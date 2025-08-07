@@ -101,17 +101,6 @@
         "title": "调研模式：{status}",
         "description": "启用后，DeerFlow 将在规划前进行快速搜索。这对于与时事和新闻相关的研究很有用。"
       },
-      "databaseInvestigation": {
-        "starting": "🔍 开始数据库背景调查...",
-        "analyzing": "正在分析查询主题：{topic}",
-        "completed": "✅ 数据库背景调查完成",
-        "analysisRecommendations": "📊 数据分析维度建议",
-        "databaseResources": "🗄️ 可用数据库资源概览",
-        "resourcesSummary": "已识别到 {count} 个数据库，包含多个数据表和字段，为后续分析提供丰富的数据支撑。",
-        "guidanceNote": "*调查结果将用于指导后续的数据分析计划制定。*",
-        "noDatabase": "⚠️ 无法获取数据库信息，将跳过数据库背景调查阶段。",
-        "failed": "❌ 数据库背景调查失败：{error}"
-      },
       "enhancePrompt": "用 AI 增强提示",
       "on": "开启",
       "off": "关闭"

@@ -29,16 +29,18 @@ def llm_summarize_search_result(content_item: Dict[str, Any], query: str) -> str
         # 准备模板变量
         title = content_item.get('title', '')
         content = content_item.get('content', '')
+        url = content_item.get('url', 'Unknown URL')
         
         # 调试输出模板变量
-        logger.info(f"模板变量 - query: '{query}', title: '{title[:50]}...', content: '{content[:50]}...'")
+        logger.info(f"模板变量 - query: '{query}', title: '{title[:50]}...', content: '{content[:50]}...', url: '{url}'")
         
         # 创建一个模拟的state用于模板渲染
         fake_state = {
             "messages": [],
             "query": query,
             "title": title,
-            "content": content
+            "content": content,
+            "url": url
         }
         
         # 使用apply_prompt_template函数渲染模板
@@ -51,7 +53,7 @@ def llm_summarize_search_result(content_item: Dict[str, Any], query: str) -> str
         logger.info(f"原始内容预览: {content_item.get('content', '')[:200]}...")
         logger.info(f"搜索结果所有字段: {list(content_item.keys())}")
         logger.info(f"原始内容URL: {content_item.get('url', '')}")
-        logger.info(f"完整摘要提示词: {prompt}")  # 输出完整提示词
+        #logger.info(f"完整摘要提示词: {prompt}")  # 输出完整提示词
         
         # 调用LLM生成摘要
         response = get_llm_by_type("basic").invoke([
@@ -62,22 +64,33 @@ def llm_summarize_search_result(content_item: Dict[str, Any], query: str) -> str
         logger.info(f"LLM响应长度: {len(response_text)} 字符")
         logger.debug(f"LLM原始响应: {response_text[:200]}...")
         
-        # 检查是否标记为无效内容
+        # 按照prompt设计检查LLM是否标记内容为无效
         if response_text.startswith("[INVALID]"):
             reason = response_text[9:].strip()  # 移除 "[INVALID]" 前缀
-            logger.info(f"内容被标记为无效: {reason}")
+            logger.info(f"LLM标记内容为无效: {reason}")
             return {"is_valid": False, "reason": reason}
-        else:
-            # 内容有效，直接使用响应作为摘要
-            logger.info(f"内容有效，摘要长度: {len(response_text)} 字符")
-            return {"is_valid": True, "summary": response_text}
+        
+        # 额外安全检查：如果响应中包含INVALID但不在开头，可能是格式错误
+        if "[INVALID]" in response_text:
+            logger.warning(f"响应包含INVALID标记但格式不正确: {response_text[:100]}...")
+            return {"is_valid": False, "reason": "Invalid format in response"}
+        
+        # 内容有效，返回摘要
+        logger.info(f"内容有效，摘要长度: {len(response_text)} 字符")
+        return {"is_valid": True, "summary": response_text}
         
     except Exception as e:
         logger.error(f"LLM摘要失败: {str(e)}", exc_info=True)
-        # 降级处理：返回截断的原始内容
+        # 降级处理：返回截断的原始内容，但检查是否包含INVALID标记
         fallback_content = content_item.get('content', '')[:500]
         if len(content_item.get('content', '')) > 500:
             fallback_content += "..."
+        
+        # 检查降级内容是否包含INVALID标记
+        if "[INVALID]" in fallback_content:
+            logger.info(f"降级内容包含INVALID标记，标记为无效")
+            return {"is_valid": False, "reason": "Fallback content contains INVALID marker"}
+        
         logger.info(f"使用降级方案，返回截断内容: {len(fallback_content)} 字符")
         return {"is_valid": True, "summary": fallback_content}
 
@@ -92,19 +105,9 @@ def format_summarized_result(content_item: Dict[str, Any], summary: str) -> str:
     Returns:
         格式化后的结果字符串
     """
-    result_parts = [f"## {content_item.get('title', '未知标题')}"]
-    result_parts.append(summary)
-    
-    # 添加图片信息
-    if content_item.get('images'):
-        result_parts.append(f"[包含 {len(content_item['images'])} 张相关图片]")
-    
-    # 添加来源信息
-    if content_item.get('url'):
-        result_parts.append(f"来源：{content_item['url']}")
-    
-    formatted_result = "\n\n".join(result_parts)
-    
+
+    formatted_result = summary
+
     # 调试输出
     logger.info(f"格式化结果长度: {len(formatted_result)} 字符")
     logger.debug(f"格式化结果预览: {formatted_result[:300]}...")

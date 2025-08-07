@@ -101,17 +101,6 @@
         "title": "Investigation Mode: {status}",
         "description": "When enabled, DeerFlow will perform a quick search before planning. This is useful for researches related to ongoing events and news."
       },
-      "databaseInvestigation": {
-        "starting": "🔍 Starting database investigation...",
-        "analyzing": "Analyzing query topic: {topic}",
-        "completed": "✅ Database investigation completed",
-        "analysisRecommendations": "📊 Data Analysis Dimension Recommendations",
-        "databaseResources": "🗄️ Available Database Resources Overview",
-        "resourcesSummary": "Identified {count} databases with multiple tables and fields, providing rich data support for subsequent analysis.",
-        "guidanceNote": "*Investigation results will guide the subsequent data analysis plan development.*",
-        "noDatabase": "⚠️ Unable to retrieve database information, skipping database investigation phase.",
-        "failed": "❌ Database investigation failed: {error}"
-      },
       "enhancePrompt": "Enhance prompt with AI",
       "on": "On",
       "off": "Off"

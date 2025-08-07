@@ -105,10 +105,10 @@ export const getChatStreamSettings = () => {
             args: cur.args,
           };
         } else {
+          // For SSE transport, don't include env as it's not supported by langchain-mcp-adapters
           server = {
             name: cur.name,
             transport,
-            env,
             url: cur.url,
           };
         }

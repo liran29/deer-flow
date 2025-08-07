@@ -210,12 +210,33 @@ async def database_investigation_node(state: State, config: RunnableConfig) -> C
 ## Available Database Information
 {database_info}"""
         
-        # 计算数据库数量
-        db_count = len([line for line in database_info.split('\n') if 'Database:' in line])
+        # 提取数据库和表信息
+        db_tables_info = []
+        current_db = None
+        tables = []
+        
+        for line in database_info.split('\n'):
+            if 'Database:' in line:
+                if current_db and tables:
+                    db_tables_info.append(f"{current_db}: {', '.join(tables[:5])}" + ("..." if len(tables) > 5 else ""))
+                current_db = line.split('Database:')[1].strip()
+                tables = []
+            elif '  - ' in line and current_db:
+                table_name = line.strip().replace('- ', '')
+                if '(' in table_name:
+                    table_name = table_name.split('(')[0].strip()
+                tables.append(table_name)
+        
+        # 添加最后一个数据库
+        if current_db and tables:
+            db_tables_info.append(f"{current_db}: {', '.join(tables[:5])}" + ("..." if len(tables) > 5 else ""))
+        
+        db_count = len(db_tables_info)
+        db_tables_str = " | ".join(db_tables_info[:3]) + ("..." if len(db_tables_info) > 3 else "")
         
         # 创建完成消息
         completion_message = AIMessage(
-            content=f"__DB_INVESTIGATION_COMPLETED__|{llm_analysis}|{db_count}",
+            content=f"__DB_INVESTIGATION_COMPLETED__|{llm_analysis}|{db_count}|{db_tables_str}",
             name="background_investigator"
         )
         

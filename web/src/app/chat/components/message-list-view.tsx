@@ -22,7 +22,7 @@ import {
   type ScrollContainerRef,
 } from "~/components/deer-flow/scroll-container";
 import { Tooltip } from "~/components/deer-flow/tooltip";
-import { DatabaseInvestigationMessage } from "~/components/deer-flow/database-investigation-message";
+import { BackgroundInvestigationMessage } from "~/components/deer-flow/background-investigation-message";
 import { Button } from "~/components/ui/button";
 import {
   Card,
@@ -181,12 +181,12 @@ function MessageListItem({
                 <CardHeader>
                   <CardTitle>
                     <Markdown animated={message.isStreaming}>
-                      ### 🔍 Database Investigation
+                      ### 🔍 Investigating
                     </Markdown>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <DatabaseInvestigationMessage content={message.content} />
+                  <BackgroundInvestigationMessage content={message.content} />
                 </CardContent>
               </Card>
             </motion.div>
