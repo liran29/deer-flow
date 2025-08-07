@@ -139,4 +139,70 @@ SEARCH_ENGINE:
   exclude_domains:
     - unreliable-site.com
     - spam-domain.net
+```
+
+## Enhanced Features Configuration
+
+### Query Optimization
+
+DeerFlow provides automatic query optimization features to improve search results quality, especially for non-English queries and complex questions. The system can:
+
+1. **Automatically translate Chinese queries to English** for better results on English websites
+2. **Extract search keywords** from complex questions to improve search relevance
+3. **Generate multiple optimized queries** to get comprehensive results
+4. **Handle temporal context** by adding recent year keywords (e.g., 2024, 2025)
+
+You can enable/disable query optimization for different components:
+
+```yaml
+ENHANCED_FEATURES:
+  # Background investigation query optimization
+  # true: Automatically translate Chinese and extract keywords
+  # false: Use original query directly
+  background_investigation_query_optimization: true
+  
+  # Researcher node query optimization  
+  # true: Optimize complex queries for better results
+  # false: Use original query directly
+  researcher_query_optimization: true
+```
+
+#### When to Use Query Optimization
+
+**Enable optimization when:**
+- Searching primarily English websites with Chinese queries
+- Dealing with complex questions that need keyword extraction
+- Need comprehensive results from multiple search angles
+- Want automatic handling of temporal context (recent years)
+
+**Disable optimization when:**
+- Testing raw search behavior
+- Queries are already well-formatted keywords
+- Searching Chinese-specific content sources
+- Need exact phrase matching
+
+#### Example Impact
+
+With query optimization **enabled**:
+- Chinese query: "沃尔玛圣诞节装饰品新品"
+- Optimized to: 
+  - "Walmart Christmas decorations 2024 2025"
+  - "Walmart holiday decor new arrivals"
+  - "Christmas decoration trends Walmart"
+- Result: Multiple relevant English results from walmart.com
+
+With query optimization **disabled**:
+- Same Chinese query searches directly
+- Result: May get irrelevant results from non-target domains
+
+### Domain Filtering for Background Investigation
+
+Control whether background investigation respects domain filters:
+
+```yaml
+ENHANCED_FEATURES:
+  # true: Only search within configured domains
+  # false: Search all domains for broader context
+  background_investigation_use_domain_filter: true
+```
 

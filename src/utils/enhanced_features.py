@@ -43,6 +43,39 @@ def is_mindsdb_database_integration_enabled() -> bool:
     return enhanced_config.get("mindsdb_database_integration", False)
 
 
+def is_background_investigation_domain_filter_enabled() -> bool:
+    """Check if background investigation should use domain filter
+    
+    This feature controls whether background investigation respects the
+    include_domains configuration. When enabled, background investigation
+    will only search within configured domains. When disabled, it searches
+    all domains to get broader background information.
+    """
+    enhanced_config = get_enhanced_features_config()
+    return enhanced_config.get("background_investigation_use_domain_filter", True)
+
+
+def is_background_investigation_query_optimization_enabled() -> bool:
+    """Check if background investigation should use query optimization
+    
+    This feature enables automatic query optimization for background investigation,
+    including Chinese-to-English translation and keyword extraction for better
+    search results.
+    """
+    enhanced_config = get_enhanced_features_config()
+    return enhanced_config.get("background_investigation_query_optimization", True)
+
+
+def is_researcher_query_optimization_enabled() -> bool:
+    """Check if researcher node should use query optimization
+    
+    This feature enables automatic query optimization for researcher nodes,
+    improving search quality for complex or non-English queries.
+    """
+    enhanced_config = get_enhanced_features_config()
+    return enhanced_config.get("researcher_query_optimization", True)
+
+
 def has_enhanced_features_enabled() -> bool:
     """Check if any enhanced features are enabled"""
     enhanced_config = get_enhanced_features_config()

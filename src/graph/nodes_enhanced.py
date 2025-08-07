@@ -42,6 +42,12 @@ from .nodes import (
 from .types import State
 from ..config import SELECTED_SEARCH_ENGINE, SearchEngine
 from ..utils.search_summarizer import llm_summarize_search_result, format_summarized_result
+from ..utils.enhanced_features import (
+    is_background_investigation_domain_filter_enabled,
+    is_background_investigation_query_optimization_enabled,
+    is_researcher_query_optimization_enabled
+)
+from ..utils.query_optimizer import optimize_query_for_search, multi_query_search
 
 logger = logging.getLogger(__name__)
 
@@ -57,65 +63,92 @@ def background_investigation_node_enhanced(state: State, config: RunnableConfig)
         logger.info(f"研究主题: {query}")
         logger.info(f"研究主题类型: {type(query)}")
         
-        if SELECTED_SEARCH_ENGINE == SearchEngine.TAVILY.value:
-            # 增加搜索结果数量以获得更全面的信息
-            search_results_count = max(8, configurable.max_search_results)
-            logger.info(f"搜索结果数量: {search_results_count}")
-            
-            searched_content = LoggedTavilySearch(
-                max_results=search_results_count,
-                include_raw_content=True,
-                include_images=True,
-            ).invoke(query)
-            
-            if isinstance(searched_content, list):
-                logger.info(f"开始对 {len(searched_content)} 个搜索结果进行LLM摘要...")
-                
-                # 对每个搜索结果使用LLM进行智能摘要
-                compressed_results = []
-                for i, elem in enumerate(searched_content):
-                    logger.info(f"正在摘要第 {i+1}/{len(searched_content)} 个结果: {elem.get('title', '')[:50]}...")
-                    
-                    # 添加延迟以避免API速率限制（除第一个请求外）
-                    if i > 0:
-                        logger.info(f"等待2秒以避免API速率限制...")
-                        time.sleep(2)  # Moonshot API限制每分钟3个请求，即2秒一个请求
-                    
-                    # 使用LLM生成摘要
-                    summary_result = llm_summarize_search_result(elem, query)
-                    
-                    # 检查是否为有效内容
-                    if not summary_result.get("is_valid", True):
-                        logger.info(f"跳过无效内容: {elem.get('title', '')[:50]}... 原因: {summary_result.get('reason', '')}")
-                        continue
-                    
-                    # 格式化摘要结果
-                    summary_text = summary_result.get("summary", "")
-                    formatted_result = format_summarized_result(elem, summary_text)
-                    compressed_results.append(formatted_result)
-                
-                logger.info("LLM摘要完成，返回压缩后的结果")
-                final_result = "\n\n".join(compressed_results)
-                logger.info(f"最终摘要结果长度: {len(final_result)} 字符")
-                logger.debug(f"最终摘要结果预览: {final_result[:300]}...")
-                
-                return {
-                    "background_investigation_results": final_result
-                }
-            else:
-                logger.error(f"Tavily search returned malformed response: {searched_content}")
-                return {"background_investigation_results": "搜索结果格式异常"}
+        # 第一步：根据配置决定是否优化查询
+        use_query_optimization = is_background_investigation_query_optimization_enabled()
+        logger.info(f"背景调查查询优化: {'启用' if use_query_optimization else '禁用'}")
+        
+        if use_query_optimization:
+            logger.info("开始优化查询关键词")
+            optimized_queries = optimize_query_for_search(query, max_queries=4)
+            logger.info(f"生成了{len(optimized_queries)}个优化查询: {optimized_queries}")
         else:
-            # 对于其他搜索引擎，暂时使用原始方法
-            background_investigation_results = get_web_search_tool(
-                configurable.max_search_results
-            ).invoke(query)
+            logger.info("使用原始查询（未优化）")
+            optimized_queries = [query]  # 直接使用原始查询
+        
+        # 第二步：根据搜索引擎类型和配置创建搜索函数
+        search_results_per_query = max(3, configurable.max_search_results // len(optimized_queries))
+        
+        if SELECTED_SEARCH_ENGINE == SearchEngine.TAVILY.value:
+            # Tavily搜索引擎：支持域名过滤配置
+            use_domain_filter = is_background_investigation_domain_filter_enabled()
+            logger.info(f"Tavily搜索 - 使用域名过滤: {use_domain_filter}")
+            
+            if use_domain_filter:
+                # 使用带域名过滤的搜索工具
+                search_tool = get_web_search_tool(search_results_per_query)
+                search_func = lambda q: search_tool.invoke(q)
+            else:
+                # 使用不带域名过滤的搜索
+                def search_func(q):
+                    return LoggedTavilySearch(
+                        max_results=search_results_per_query,
+                        include_raw_content=True,
+                        include_images=True,
+                    ).invoke(q)
+        else:
+            # 其他搜索引擎：使用通用搜索工具
+            logger.info(f"使用搜索引擎: {SELECTED_SEARCH_ENGINE}")
+            search_tool = get_web_search_tool(search_results_per_query)
+            search_func = lambda q: search_tool.invoke(q)
+        
+        # 第三步：执行多查询搜索（通用策略）
+        logger.info("开始执行多查询搜索策略")
+        searched_content = multi_query_search(
+            search_func, 
+            optimized_queries, 
+            max_results_per_query=search_results_per_query
+        )
+        
+        logger.info(f"多查询搜索完成，获得{len(searched_content) if isinstance(searched_content, list) else 0}个结果")
+
+        # 第四步：处理搜索结果（适用于所有搜索引擎）
+        if isinstance(searched_content, list):
+            logger.info(f"开始对 {len(searched_content)} 个搜索结果进行LLM摘要...")
+            
+            # 对每个搜索结果使用LLM进行智能摘要
+            compressed_results = []
+            for i, elem in enumerate(searched_content):
+                logger.info(f"正在摘要第 {i+1}/{len(searched_content)} 个结果: {elem.get('title', '')[:50]}...")
+                
+                # 添加延迟以避免API速率限制（除第一个请求外）
+                if i > 0:
+                    logger.info(f"等待2秒以避免API速率限制...")
+                    time.sleep(2)  # API限制处理
+                
+                # 使用LLM生成摘要
+                summary_result = llm_summarize_search_result(elem, query)
+                
+                # 检查是否为有效内容
+                if not summary_result.get("is_valid", True):
+                    logger.info(f"跳过无效内容: {elem.get('title', '')[:50]}... 原因: {summary_result.get('reason', '')}")
+                    continue
+                
+                # 格式化摘要结果
+                summary_text = summary_result.get("summary", "")
+                formatted_result = format_summarized_result(elem, summary_text)
+                compressed_results.append(formatted_result)
+            
+            logger.info("LLM摘要完成，返回压缩后的结果")
+            final_result = "\n\n".join(compressed_results)
+            logger.info(f"最终摘要结果长度: {len(final_result)} 字符")
+            logger.debug(f"最终摘要结果预览: {final_result[:300]}...")
             
             return {
-                "background_investigation_results": json.dumps(
-                    background_investigation_results, ensure_ascii=False
-                )
+                "background_investigation_results": final_result
             }
+        else:
+            logger.error(f"搜索引擎返回异常格式: {type(searched_content)}")
+            return {"background_investigation_results": f"Search result format error: {type(searched_content)}"}
     
     except Exception as e:
         logger.error(f"Enhanced background investigation failed: {str(e)}", exc_info=True)
@@ -584,10 +617,39 @@ async def researcher_node_with_dependencies(
     
     This version replaces the original researcher_node to implement token optimization
     by only including relevant previous step results based on declared dependencies.
+    Additionally, it can apply query optimization for better search results based on config.
     """
-    logger.info("Researcher node is researching (with dependency optimization).")
     configurable = Configuration.from_runnable_config(config)
-    tools = [get_web_search_tool(configurable.max_search_results), crawl_tool]
+    
+    # 检查是否启用查询优化
+    use_query_optimization = is_researcher_query_optimization_enabled()
+    
+    if use_query_optimization:
+        logger.info("Researcher node is researching (with dependency and query optimization).")
+        
+        # 获取基础搜索工具
+        base_search_tool = get_web_search_tool(configurable.max_search_results)
+        
+        # 导入优化搜索工具
+        from src.tools.optimized_search import create_optimized_search_tool
+        
+        # 创建优化的搜索工具
+        optimized_search_tool = create_optimized_search_tool(
+            base_tool=base_search_tool,
+            max_queries=4,  # 每个查询生成4个优化版本
+            max_results_per_query=3  # 每个优化查询返回3个结果
+        )
+        
+        # 使用优化的搜索工具替代原始工具
+        tools = [optimized_search_tool, crawl_tool]
+        logger.info("Researcher使用优化搜索工具")
+    else:
+        logger.info("Researcher node is researching (with dependency optimization only).")
+        
+        # 使用原始搜索工具（未优化）
+        tools = [get_web_search_tool(configurable.max_search_results), crawl_tool]
+        logger.info("Researcher使用原始搜索工具")
+    
     retriever_tool = get_retriever_tool(state.get("resources", []))
     if retriever_tool:
         tools.insert(0, retriever_tool)
