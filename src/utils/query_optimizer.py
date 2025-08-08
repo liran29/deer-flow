@@ -38,83 +38,58 @@ def get_current_time_context() -> Dict[str, Any]:
     }
 
 
-def translate_to_english(chinese_query: str) -> str:
-    """将中文查询翻译为地道的英文"""
-    try:
-        # 创建用于模板渲染的状态 - 需要包含messages字段
-        template_state = {
-            "chinese_query": chinese_query,
-            "messages": []  # apply_prompt_template需要这个字段
-        }
-        
-        # 使用模板生成提示词
-        messages = apply_prompt_template("query_translator", template_state)
-        prompt = messages[0]["content"]
-        
-        llm = get_llm_by_type("basic")
-        response = llm.invoke([{"role": "user", "content": prompt}])
-        
-        translated = response.content.strip()
-        logger.info(f"查询翻译: '{chinese_query}' -> '{translated}'")
-        
-        return translated
-        
-    except Exception as e:
-        logger.error(f"翻译失败: {str(e)}")
-        # 降级处理：返回原查询
-        return chinese_query
-
-
-def extract_search_keywords(query: str, max_keywords: int = 4) -> List[str]:
-    """从问句中提取搜索关键词组合"""
+def optimize_query_unified(query: str, max_queries: int = 4) -> List[str]:
+    """统一的查询优化 - 一次LLM调用处理翻译和关键词提取"""
     try:
         time_context = get_current_time_context()
         recent_years_str = " ".join(map(str, time_context["recent_years"]))
         
-        # 创建用于模板渲染的状态 - 需要包含messages字段
+        # 创建用于模板渲染的状态
         template_state = {
             "query": query,
-            "max_keywords": max_keywords,
+            "max_queries": max_queries,
             "current_year": time_context["current_year"],
             "current_month": time_context["current_month"],
             "recent_years_str": recent_years_str,
             "messages": []  # apply_prompt_template需要这个字段
         }
         
-        # 使用模板生成提示词
-        messages = apply_prompt_template("keyword_extractor", template_state)
+        # 使用统一的优化模板
+        messages = apply_prompt_template("query_optimizer", template_state)
         prompt = messages[0]["content"]
         
         llm = get_llm_by_type("basic")
         response = llm.invoke([{"role": "user", "content": prompt}])
         
-        # 解析响应，提取关键词组合
+        # 解析响应，提取优化后的查询
         lines = response.content.strip().split('\n')
-        keywords = []
+        optimized_queries = []
         
         for line in lines:
             line = line.strip()
-            if line and not line.startswith(('Example', 'Generate', 'Requirements')):
+            if line and not line.startswith(('Example', 'Output', 'Guidelines', 'Your task')):
                 # 移除序号和项目符号
                 cleaned_line = re.sub(r'^\d+[.)\s]*', '', line)
                 cleaned_line = re.sub(r'^[-*•]\s*', '', cleaned_line)
+                cleaned_line = cleaned_line.strip('"\'')  # 移除引号
                 
-                if cleaned_line:
-                    keywords.append(cleaned_line)
+                if cleaned_line and len(cleaned_line.split()) <= 8:  # 限制长度
+                    optimized_queries.append(cleaned_line)
         
-        # 确保返回指定数量的关键词
-        keywords = keywords[:max_keywords]
+        # 确保返回指定数量的查询
+        optimized_queries = optimized_queries[:max_queries]
         
-        if not keywords:
-            # 降级处理：简单的关键词提取
-            logger.warning("LLM关键词提取失败，使用简单提取")
-            keywords = [query.replace('？', '').replace('?', '')]
+        if not optimized_queries:
+            # 降级处理：返回原查询
+            logger.warning("LLM查询优化失败，使用原查询")
+            optimized_queries = [query.replace('？', '').replace('?', '')]
         
-        logger.info(f"提取的搜索关键词: {keywords}")
-        return keywords
+        logger.info(f"查询优化: '{query}' -> {optimized_queries}")
+        return optimized_queries
         
     except Exception as e:
-        logger.error(f"关键词提取失败: {str(e)}")
+        logger.error(f"查询优化失败: {str(e)}")
+        # 降级处理：返回原查询
         return [query]
 
 
@@ -128,30 +103,13 @@ def optimize_query_for_search(user_query: str, max_queries: int = 4) -> List[str
     Returns:
         优化后的搜索关键词列表
     """
-    try:
-        logger.info(f"开始优化查询: '{user_query}'")
-        
-        # 检测是否为中文查询
-        contains_chinese = bool(re.search(r'[\u4e00-\u9fff]', user_query))
-        
-        if contains_chinese:
-            # 步骤1: 翻译为英文
-            logger.info("检测到中文查询，进行翻译")
-            english_query = translate_to_english(user_query)
-        else:
-            english_query = user_query
-        
-        # 步骤2: 提取搜索关键词
-        logger.info("提取搜索关键词")
-        optimized_queries = extract_search_keywords(english_query, max_queries)
-        
-        logger.info(f"查询优化完成，生成了{len(optimized_queries)}个优化查询")
-        return optimized_queries
-        
-    except Exception as e:
-        logger.error(f"查询优化失败: {str(e)}")
-        # 降级处理：返回原查询
-        return [user_query]
+    logger.info(f"开始统一查询优化: '{user_query}'")
+    
+    # 使用统一的优化函数
+    optimized_queries = optimize_query_unified(user_query, max_queries)
+    
+    logger.info(f"查询优化完成，生成了{len(optimized_queries)}个优化查询")
+    return optimized_queries
 
 
 def multi_query_search(search_func, queries: List[str], max_results_per_query: int = 3) -> List[Dict]:

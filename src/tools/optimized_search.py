@@ -46,8 +46,10 @@ class OptimizedSearchTool(BaseTool):
     
     async def _arun(self, query: str) -> List[Dict[str, Any]]:
         """异步执行优化搜索"""
-        # 目前使用同步实现，后续可优化为异步
-        return self._execute_optimized_search(query)
+        # 在异步上下文中执行同步方法
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._execute_optimized_search, query)
     
     def _execute_optimized_search(self, query: str) -> List[Dict[str, Any]]:
         """

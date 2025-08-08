@@ -145,12 +145,13 @@ SEARCH_ENGINE:
 
 ### Query Optimization
 
-DeerFlow provides automatic query optimization features to improve search results quality, especially for non-English queries and complex questions. The system can:
+DeerFlow provides intelligent query optimization that automatically transforms user queries into effective search keywords. The system features:
 
-1. **Automatically translate Chinese queries to English** for better results on English websites
-2. **Extract search keywords** from complex questions to improve search relevance
-3. **Generate multiple optimized queries** to get comprehensive results
-4. **Handle temporal context** by adding recent year keywords (e.g., 2024, 2025)
+1. **Smart Language Detection & Translation** - Automatically detects Chinese queries and generates natural, search-friendly English keywords (not literal translations)
+2. **Intelligent Keyword Extraction** - Converts complex questions into concise, searchable terms optimized for search engines
+3. **Multi-Query Strategy** - Generates multiple optimized search queries (default 4) for comprehensive coverage
+4. **Temporal Context Awareness** - Automatically includes recent years (2024, 2025) for time-sensitive searches
+5. **Single LLM Call Efficiency** - Processes translation and keyword extraction in one step for better performance
 
 You can enable/disable query optimization for different components:
 
@@ -184,12 +185,13 @@ ENHANCED_FEATURES:
 #### Example Impact
 
 With query optimization **enabled**:
-- Chinese query: "沃尔玛圣诞节装饰品新品"
-- Optimized to: 
-  - "Walmart Christmas decorations 2024 2025"
-  - "Walmart holiday decor new arrivals"
-  - "Christmas decoration trends Walmart"
-- Result: Multiple relevant English results from walmart.com
+- Chinese query: "沃尔玛在线商城最近推出了哪些新的热门圣诞节装饰品商品类别？"
+- Intelligently optimized to:
+  - "Walmart new Christmas decorations 2025"
+  - "Walmart holiday decor categories 2024 2025"  
+  - "trending Christmas ornaments Walmart"
+  - "Walmart seasonal decorations latest"
+- Result: Concise, search-friendly keywords that match English website content
 
 With query optimization **disabled**:
 - Same Chinese query searches directly
