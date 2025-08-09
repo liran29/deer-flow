@@ -566,11 +566,15 @@ async def _setup_and_execute_agent_step_with_dependencies(
     config: RunnableConfig,
     agent_type: str,
     default_tools: list,
+    prompt_template: str = None,
 ) -> Command[Literal["research_team"]]:
     """Enhanced version of _setup_and_execute_agent_step that uses dependency-based execution.
     
     This function is identical to the original but calls _execute_agent_step_with_dependencies
     instead of _execute_agent_step to implement the token optimization.
+    
+    Args:
+        prompt_template: Custom prompt template name. If None, defaults to agent_type.
     """
     configurable = Configuration.from_runnable_config(config)
     mcp_servers = {}
@@ -591,6 +595,9 @@ async def _setup_and_execute_agent_step_with_dependencies(
                 for tool_name in server_config["enabled_tools"]:
                     enabled_tools[tool_name] = server_name
 
+    # Determine which prompt template to use
+    template_name = prompt_template if prompt_template else agent_type
+    
     # Create and execute agent with MCP tools if available
     if mcp_servers:
         client = MultiServerMCPClient(mcp_servers)
@@ -602,11 +609,11 @@ async def _setup_and_execute_agent_step_with_dependencies(
                     f"Powered by '{enabled_tools[tool.name]}'.\n{tool.description}"
                 )
                 loaded_tools.append(tool)
-        agent = create_agent(agent_type, agent_type, loaded_tools, agent_type)
+        agent = create_agent(agent_type, agent_type, loaded_tools, template_name)
         return await _execute_agent_step_with_dependencies(state, agent, agent_type)
     else:
         # Use default tools if no MCP servers are configured
-        agent = create_agent(agent_type, agent_type, default_tools, agent_type)
+        agent = create_agent(agent_type, agent_type, default_tools, template_name)
         return await _execute_agent_step_with_dependencies(state, agent, agent_type)
 
 
@@ -625,24 +632,18 @@ async def researcher_node_with_dependencies(
     use_query_optimization = is_researcher_query_optimization_enabled()
     
     if use_query_optimization:
-        logger.info("Researcher node is researching (with dependency and query optimization).")
+        logger.info("Researcher node is researching (with search overview and selective crawl workflow).")
         
-        # 获取基础搜索工具
-        base_search_tool = get_web_search_tool(configurable.max_search_results)
+        # 导入新的工具
+        from src.tools.search_overview import create_search_overview_tool
+        from src.tools.selective_crawl import selective_crawl_tool, batch_selective_crawl_tool
         
-        # 导入优化搜索工具
-        from src.tools.optimized_search import create_optimized_search_tool
+        # 创建搜索概览工具
+        search_overview_tool = create_search_overview_tool()
         
-        # 创建优化的搜索工具
-        optimized_search_tool = create_optimized_search_tool(
-            base_tool=base_search_tool,
-            max_queries=4,  # 每个查询生成4个优化版本
-            max_results_per_query=3  # 每个优化查询返回3个结果
-        )
-        
-        # 使用优化的搜索工具替代原始工具
-        tools = [optimized_search_tool, crawl_tool]
-        logger.info("Researcher使用优化搜索工具")
+        # 使用新的工作流程：搜索概览 + 选择性爬取
+        tools = [search_overview_tool, selective_crawl_tool, batch_selective_crawl_tool]
+        logger.info("Researcher使用搜索概览和选择性爬取工具")
     else:
         logger.info("Researcher node is researching (with dependency optimization only).")
         
@@ -659,6 +660,7 @@ async def researcher_node_with_dependencies(
         config,
         "researcher",
         tools,
+        "researcher_enhanced",  # 使用增强版的researcher提示词模板
     )
 
 

@@ -145,8 +145,62 @@ def multi_query_search(search_func, queries: List[str], max_results_per_query: i
     # 去重处理（基于URL）
     unique_results = remove_duplicate_results(all_results)
     
-    logger.info(f"多查询搜索完成，去重前{len(all_results)}个结果，去重后{len(unique_results)}个结果")
-    return unique_results
+    # 相关性筛选（进一步减少结果，控制token使用）
+    filtered_results = filter_by_relevance(unique_results, queries, max_results=4)
+    
+    logger.info(f"多查询搜索完成，去重前{len(all_results)}个结果，去重后{len(unique_results)}个结果，筛选后{len(filtered_results)}个结果")
+    return filtered_results
+
+
+def calculate_relevance_score(result: Dict, queries: List[str]) -> float:
+    """计算搜索结果的相关性评分"""
+    if not isinstance(result, dict):
+        return 0.0
+    
+    title = result.get('title', '').lower()
+    content = result.get('content', '').lower()
+    
+    score = 0.0
+    query_text = ' '.join(queries).lower()
+    
+    # 基于关键词匹配计算评分
+    keywords = query_text.split()
+    
+    for keyword in keywords:
+        if len(keyword) > 2:  # 忽略短词
+            # 标题匹配权重更高
+            if keyword in title:
+                score += 3.0
+            # 内容匹配
+            if keyword in content:
+                score += 1.0
+    
+    # 内容长度奖励（有内容的结果更好）
+    content_length = len(content)
+    if content_length > 100:
+        score += min(2.0, content_length / 500)
+    
+    return score
+
+
+def filter_by_relevance(results: List[Dict], queries: List[str], max_results: int = 8) -> List[Dict]:
+    """基于相关性筛选搜索结果"""
+    if not results:
+        return results
+    
+    # 计算每个结果的相关性评分
+    scored_results = []
+    for result in results:
+        score = calculate_relevance_score(result, queries)
+        scored_results.append((score, result))
+    
+    # 按评分排序并返回最高评分的结果
+    scored_results.sort(key=lambda x: x[0], reverse=True)
+    filtered_results = [result for score, result in scored_results[:max_results]]
+    
+    logger.info(f"相关性筛选: {len(results)}个结果筛选为{len(filtered_results)}个")
+    
+    return filtered_results
 
 
 def remove_duplicate_results(results: List[Dict]) -> List[Dict]:
