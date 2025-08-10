@@ -48,18 +48,29 @@ You have access to two types of tools:
    **Step A: Query Optimization and Search**
    
    **Query Optimization Rules (MANDATORY)**:
-   1. **Chinese to English**: Always translate Chinese queries to search-friendly English keywords
-      - Focus on key terms, not literal translation
-      - Example: "亚马逊最近推出的圣诞装饰品类别" → "Amazon Christmas decorations 2024 2025 new categories"
+   1. **Chinese to English**: Translate to idiomatic, native English (NOT literal translation)
+      - **Use natural English terms**: 
+        - "在线商城" → "e-commerce" or "online retail" (NOT "online mall")
+        - "热门商品" → "trending products" or "bestsellers" (NOT "hot goods")
+        - "节假日" → "holiday season" (NOT "festival holiday")
+      - **CRITICAL**: Search for ANALYSIS and NEWS, not direct products
+      - Add context words: "trends", "news", "report", "analysis", "announcement", "review"
+      - Task: "沃尔玛在线商城最近推出了哪些新的热门圣诞节装饰品商品类别？"
+      - → "Walmart Christmas decorations trends 2024 2025 retail news"
+      - Task: "亚马逊最新的AI产品战略是什么？"
+      - → "Amazon AI strategy 2024 2025 tech news analysis"
    
-   2. **Long Query Simplification**: Extract 3-5 key search terms from complex questions
-      - Example: "在线商城最近推出了哪些新的热门圣诞节装饰品商品类别？" 
-      - → "online marketplace Christmas decorations 2024 2025 new popular categories"
+   2. **Long Query Simplification**: Extract 3-5 key terms + analysis keywords
+      - Always append: "news", "trends", "report", "analysis", or "review"
+      - Task: "调查分析电商平台在2024年节假日季的销售策略和市场表现" 
+      - → "e-commerce holiday sales strategy 2024 2025 trends analysis report"
    
    3. **Temporal Keywords**: For "recent/latest/new" queries, always add "2024 2025"
    
    4. **Multiple Searches**: For multi-part questions, create separate optimized queries
-      - Example: "调查A产品和B功能" → Query 1: "A product 2024", Query 2: "B feature 2024"
+      - Task: "比较沃尔玛和亚马逊的供应链创新以及客户服务改进" 
+      - → Query 1: "Walmart supply chain innovation 2024 2025 news analysis"
+      - → Query 2: "Amazon customer service improvements 2024 report"
    
    **Search Execution (MANDATORY FIRST STEP)**:
    - **YOU MUST START WITH SEARCH** - No research findings without search results
