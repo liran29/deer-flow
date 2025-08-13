@@ -121,8 +121,22 @@ def batch_selective_crawl_tool(
         
         logger.info(f"Batch crawl completed: {successful_crawls}/{len(urls)} successful, total content: {total_content_length} chars")
         
+        # 创建人类可读的摘要
+        summary_text = f"Crawled {successful_crawls}/{len(urls)} URLs successfully:\n\n"
+        for i, result in enumerate(results, 1):
+            if result.get("status") == "success":
+                summary_text += f"{i}. ✓ {result.get('title', 'No title')}\n"
+                summary_text += f"   URL: {result.get('url')}\n"
+                summary_text += f"   Content length: {result.get('content_length', 0)} chars\n\n"
+            else:
+                summary_text += f"{i}. ✗ Failed: {result.get('url')}\n"
+                summary_text += f"   Error: {result.get('error', 'Unknown error')}\n\n"
+        
+        summary_text += f"\nTotal content retrieved: {total_content_length} characters"
+        
         return {
-            "results": results,
+            "results": results,  # 结构化数据供LLM处理
+            "summary": summary_text,  # 人类可读的摘要
             "total_crawled": successful_crawls,
             "total_urls": len(urls),
             "total_content_length": total_content_length,

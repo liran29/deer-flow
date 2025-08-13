@@ -77,33 +77,44 @@ class SearchOverviewTool(BaseTool):
             result = light_search.invoke(query)
             all_results = result if isinstance(result, list) else [result]
             
-            # 格式化为概览结果
+            # 保持结构化数据，但添加可读的摘要
             overview_results = []
+            summary_text = f"Found {len(all_results)} results for '{query}':\n\n"
+            
             for i, result in enumerate(all_results, 1):
+                title = result.get("title", "No title")
+                snippet = result.get("content", "")[:500]
+                url = result.get("url", "")
+                relevance = self._generate_relevance_hint(result, query)
+                
+                # 结构化数据（便于LLM处理）
                 overview_item = {
                     "index": i,
-                    "title": result.get("title", "No title"),
-                    "snippet": result.get("content", "")[:500],  # 限制摘要长度
-                    "url": result.get("url", ""),
-                    "relevance_hint": self._generate_relevance_hint(result, query)
+                    "title": title,
+                    "snippet": snippet,
+                    "url": url,
+                    "relevance_hint": relevance
                 }
                 overview_results.append(overview_item)
+                
+                # 人类可读的摘要
+                summary_text += f"{i}. {title}\n   {url}\n   Relevance: {relevance}\n\n"
             
             logger.info(f"搜索概览完成，返回{len(overview_results)}个结果概览")
             
-            # 添加使用提示
-            if overview_results:
-                usage_hint = {
-                    "hint": "Analyze these results first. Select 2-3 most relevant URLs to crawl for detailed content.",
+            # 返回结构化数据 + 可读摘要
+            return {
+                "overview": overview_results,
+                "summary": summary_text,
+                "usage": {
+                    "hint": "Analyze results and select 2-3 most relevant URLs to crawl",
                     "total_results": len(overview_results)
                 }
-                return {"overview": overview_results, "usage": usage_hint}
-            
-            return {"overview": [], "usage": {"hint": "No results found", "total_results": 0}}
+            }
             
         except Exception as e:
             logger.error(f"搜索概览失败: {e}")
-            return {"overview": [], "error": str(e)}
+            return f"Search overview failed: {str(e)}"
     
     def _generate_relevance_hint(self, result: Dict, query: str) -> str:
         """生成相关性提示"""
